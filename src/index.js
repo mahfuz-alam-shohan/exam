@@ -456,7 +456,7 @@ function getHtml() {
                     <h3 className="font-bold text-xl mb-4">{viewDetail.name}'s Answers</h3>
                     <div className="space-y-4">
                         {JSON.parse(viewDetail.details || '[]').map((d,i) => (
-                            <div key={i} className={`p-4 rounded-lg border ${d.isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                            <div key={i} className=\`p-4 rounded-lg border \${d.isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}\`}>
                                 <div className="font-bold text-gray-800 mb-1">Q{i+1}: {d.qText}</div>
                                 <div className="text-sm">
                                     <span className="font-bold">Student:</span> {d.selectedText} 
@@ -959,7 +959,7 @@ function getHtml() {
             const [qTime, setQTime] = useState(0);
             const [totalTime, setTotalTime] = useState(0);
 
-            useEffect(() => { fetch(`/api/exam/get?link_id=${linkId}`).then(r=>r.json()).then(d => d.exam?.is_active ? setExam(d) : alert("Exam Closed")); }, [linkId]);
+            useEffect(() => { fetch(`/api/exam/get?link_id=\${linkId}`).then(r=>r.json()).then(d => d.exam?.is_active ? setExam(d) : alert("Exam Closed")); }, [linkId]);
 
             // Timer Tick
             useEffect(() => {
