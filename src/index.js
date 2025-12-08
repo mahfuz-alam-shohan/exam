@@ -2,6 +2,7 @@
  * Cloudflare Worker - My Class (SaaS Masterclass)
  * - Branding: "My Class" (Playful, Kiddy, Mobile-First)
  * - Features: Persisted Session, Hash Routing, Mobile Bottom Nav, Deep Analytics
+ * - Fixes: Crash prevention for API errors (Blank Screen Fix)
  */
 
 export default {
@@ -47,6 +48,7 @@ async function handleApi(request, env, path, url) {
         const count = await env.DB.prepare("SELECT COUNT(*) as count FROM users").first('count');
         return Response.json({ installed: true, hasAdmin: count > 0 });
       } catch (e) {
+        // If DB is totally empty/missing tables, we consider it uninstalled
         return Response.json({ installed: false, hasAdmin: false, error: e.message });
       }
     }
@@ -67,13 +69,17 @@ async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/system/reset' && method === 'POST') {
-        await env.DB.batch([
-            env.DB.prepare("DELETE FROM students"),
-            env.DB.prepare("DELETE FROM exams"),
-            env.DB.prepare("DELETE FROM questions"),
-            env.DB.prepare("DELETE FROM attempts"),
-        ]);
-        return Response.json({ success: true });
+        try {
+            await env.DB.batch([
+                env.DB.prepare("DELETE FROM students"),
+                env.DB.prepare("DELETE FROM exams"),
+                env.DB.prepare("DELETE FROM questions"),
+                env.DB.prepare("DELETE FROM attempts"),
+            ]);
+            return Response.json({ success: true });
+        } catch(e) {
+            return Response.json({ error: e.message }, { status: 500 });
+        }
     }
 
     // 2. AUTH
@@ -171,8 +177,13 @@ async function handleApi(request, env, path, url) {
 
     if (path === '/api/teacher/exams' && method === 'GET') {
       const teacherId = url.searchParams.get('teacher_id');
-      const exams = await env.DB.prepare("SELECT * FROM exams WHERE teacher_id = ? ORDER BY created_at DESC").bind(teacherId).all();
-      return Response.json(exams.results);
+      // Added try-catch for robustness
+      try {
+          const exams = await env.DB.prepare("SELECT * FROM exams WHERE teacher_id = ? ORDER BY created_at DESC").bind(teacherId).all();
+          return Response.json(exams.results);
+      } catch(e) {
+          return Response.json({error: e.message}, {status: 500});
+      }
     }
 
     if (path === '/api/teacher/exam-details' && method === 'GET') {
@@ -261,24 +272,32 @@ async function handleApi(request, env, path, url) {
     // 6. ANALYTICS
     if (path === '/api/analytics/exam' && method === 'GET') {
       const examId = url.searchParams.get('exam_id');
-      const results = await env.DB.prepare(`
-        SELECT a.*, s.name, s.school_id, s.roll 
-        FROM attempts a 
-        JOIN students s ON a.student_db_id = s.id 
-        WHERE a.exam_id = ? 
-        ORDER BY a.timestamp DESC
-      `).bind(examId).all();
-      return Response.json(results.results);
+      try {
+          const results = await env.DB.prepare(`
+            SELECT a.*, s.name, s.school_id, s.roll 
+            FROM attempts a 
+            JOIN students s ON a.student_db_id = s.id 
+            WHERE a.exam_id = ? 
+            ORDER BY a.timestamp DESC
+          `).bind(examId).all();
+          return Response.json(results.results);
+      } catch(e) {
+          return Response.json([]); // Return empty array on error to prevent frontend crash
+      }
     }
 
     if (path === '/api/students/list' && method === 'GET') {
-        const students = await env.DB.prepare(`
-            SELECT s.*, COUNT(a.id) as exams_count, AVG(CAST(a.score AS FLOAT)/CAST(a.total AS FLOAT))*100 as avg_score 
-            FROM students s 
-            LEFT JOIN attempts a ON s.id = a.student_db_id 
-            GROUP BY s.id
-        `).all();
-        return Response.json(students.results);
+        try {
+            const students = await env.DB.prepare(`
+                SELECT s.*, COUNT(a.id) as exams_count, AVG(CAST(a.score AS FLOAT)/CAST(a.total AS FLOAT))*100 as avg_score 
+                FROM students s 
+                LEFT JOIN attempts a ON s.id = a.student_db_id 
+                GROUP BY s.id
+            `).all();
+            return Response.json(students.results);
+        } catch(e) {
+            return Response.json([]);
+        }
     }
     
     if (path === '/api/student/details' && method === 'GET') {
@@ -449,7 +468,14 @@ function getHtml() {
             const [statId, setStatId] = useState(null);
 
             useEffect(() => { loadExams(); }, []);
-            const loadExams = () => fetch(\`/api/teacher/exams?teacher_id=\${user.id}\`).then(r => r.json()).then(setExams);
+            
+            // Safe fetch logic to prevent crash
+            const loadExams = () => {
+                fetch(\`/api/teacher/exams?teacher_id=\${user.id}\`)
+                    .then(r => r.json())
+                    .then(d => setExams(Array.isArray(d) ? d : []))
+                    .catch(() => setExams([]));
+            };
 
             const toggle = async (id, isActive) => {
                 await fetch('/api/exam/toggle', { method: 'POST', body: JSON.stringify({ id, is_active: !isActive }) });
@@ -742,9 +768,14 @@ function getHtml() {
 
             // Persist User
             useEffect(() => {
-                const u = localStorage.getItem('mc_user');
-                if(u) setUser(JSON.parse(u));
-                fetch('/api/system/status').then(r=>r.json()).then(setStatus);
+                try {
+                    const u = localStorage.getItem('mc_user');
+                    if(u) setUser(JSON.parse(u));
+                } catch(e) { console.error(e); }
+                fetch('/api/system/status')
+                    .then(r=>r.json())
+                    .then(setStatus)
+                    .catch(e=>setStatus({installed:false, hasAdmin:false})); 
             }, []);
 
             const loginUser = (u) => {
@@ -1018,12 +1049,22 @@ function getHtml() {
         }
         function StudentList() {
             const [list, setList] = useState([]);
-            useEffect(() => { fetch('/api/students/list').then(r=>r.json()).then(setList); }, []);
+            useEffect(() => { 
+                fetch('/api/students/list')
+                    .then(r=>r.json())
+                    .then(d => setList(Array.isArray(d) ? d : []))
+                    .catch(() => setList([])); 
+            }, []);
             return <div className="grid gap-3 pb-20">{list.map(s=><div key={s.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center"><div><div className="font-bold">{s.name}</div><div className="text-xs text-gray-400">{s.school_id}</div></div><div className="font-bold text-green-500">{Math.round(s.avg_score||0)}%</div></div>)}</div>
         }
         function ExamStats({ examId }) {
             const [data, setData] = useState([]);
-            useEffect(() => { fetch(\`/api/analytics/exam?exam_id=\${examId}\`).then(r=>r.json()).then(setData); }, [examId]);
+            useEffect(() => { 
+                fetch(\`/api/analytics/exam?exam_id=\${examId}\`)
+                    .then(r=>r.json())
+                    .then(d => setData(Array.isArray(d) ? d : []))
+                    .catch(() => setData([]));
+            }, [examId]);
             return <div className="space-y-3 pb-20">{data.map(r=><div key={r.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between"><span>{r.name}</span><span className="font-bold">{r.score}/{r.total}</span></div>)}</div>
         }
 
