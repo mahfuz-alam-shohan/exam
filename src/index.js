@@ -2,7 +2,7 @@
  * Cloudflare Worker - My Class (SaaS Masterclass)
  * - Branding: "My Class" (Playful, Kiddy, Mobile-First)
  * - Features: Persisted Session, Hash Routing, Mobile Bottom Nav, Deep Analytics
- * - Fixes: Crash prevention for API errors (Blank Screen Fix)
+ * - Fixes: Added ErrorBoundary to prevent Blank Screen, Safe Data Loading
  */
 
 export default {
@@ -48,7 +48,6 @@ async function handleApi(request, env, path, url) {
         const count = await env.DB.prepare("SELECT COUNT(*) as count FROM users").first('count');
         return Response.json({ installed: true, hasAdmin: count > 0 });
       } catch (e) {
-        // If DB is totally empty/missing tables, we consider it uninstalled
         return Response.json({ installed: false, hasAdmin: false, error: e.message });
       }
     }
@@ -177,7 +176,6 @@ async function handleApi(request, env, path, url) {
 
     if (path === '/api/teacher/exams' && method === 'GET') {
       const teacherId = url.searchParams.get('teacher_id');
-      // Added try-catch for robustness
       try {
           const exams = await env.DB.prepare("SELECT * FROM exams WHERE teacher_id = ? ORDER BY created_at DESC").bind(teacherId).all();
           return Response.json(exams.results);
@@ -282,7 +280,7 @@ async function handleApi(request, env, path, url) {
           `).bind(examId).all();
           return Response.json(results.results);
       } catch(e) {
-          return Response.json([]); // Return empty array on error to prevent frontend crash
+          return Response.json([]); 
       }
     }
 
@@ -361,7 +359,26 @@ function getHtml() {
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect, useRef, Component } = React;
+
+        // --- ERROR BOUNDARY ---
+        class ErrorBoundary extends Component {
+            constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+            static getDerivedStateFromError(error) { return { hasError: true, error }; }
+            render() {
+                if (this.state.hasError) {
+                    return (
+                        <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-red-50 text-red-900 text-center">
+                            <h1 className="text-3xl font-bold mb-4">Oops! 🐞</h1>
+                            <p className="mb-4">Something went wrong.</p>
+                            <pre className="bg-white p-4 rounded text-xs text-left overflow-auto max-w-sm border border-red-200">{this.state.error.toString()}</pre>
+                            <button onClick={() => window.location.reload()} className="mt-6 bg-red-600 text-white px-6 py-3 rounded-xl font-bold">Reload App</button>
+                        </div>
+                    );
+                }
+                return this.props.children;
+            }
+        }
 
         // --- ICONS (Rounded & Friendly) ---
         const Icons = {
@@ -395,10 +412,15 @@ function getHtml() {
 
         // --- DASHBOARD LAYOUT (Responsive) ---
         function DashboardLayout({ user, onLogout, title, action, children, activeTab, onTabChange }) {
+            // SAFEGUARDS: Default values to prevent crashes if user data is missing
+            const safeUser = user || { name: 'User', role: 'teacher' };
+            const initial = (safeUser.name && safeUser.name[0]) ? safeUser.name[0] : 'U';
+            const roleLabel = safeUser.role ? safeUser.role.replace('_', ' ') : 'Teacher';
+
             const tabs = [
                 { id: 'exams', icon: <Icons.Exam />, label: 'Exams' },
-                ...(user.role === 'teacher' ? [{ id: 'students', icon: <Icons.Users />, label: 'Students' }] : []),
-                ...(user.role === 'super_admin' ? [{ id: 'settings', icon: <Icons.Setting />, label: 'Settings' }] : []),
+                ...(safeUser.role === 'teacher' ? [{ id: 'students', icon: <Icons.Users />, label: 'Students' }] : []),
+                ...(safeUser.role === 'super_admin' ? [{ id: 'settings', icon: <Icons.Setting />, label: 'Settings' }] : []),
             ];
 
             return (
@@ -418,6 +440,13 @@ function getHtml() {
                             ))}
                         </nav>
                         <div className="p-4 border-t border-orange-50">
+                            <div className="flex items-center gap-3 px-4 py-3 bg-gray-800/50 rounded-xl mb-2">
+                                <div className="w-8 h-8 bg-indigo-500 rounded-full flex items-center justify-center text-sm font-bold text-white">{initial}</div>
+                                <div className="flex-1 min-w-0 hidden lg:block">
+                                    <p className="text-sm font-medium text-white truncate">{safeUser.name}</p>
+                                    <p className="text-xs text-gray-400 truncate capitalize">{roleLabel}</p>
+                                </div>
+                            </div>
                             <button onClick={onLogout} className="w-full flex items-center gap-4 p-3 rounded-2xl text-red-400 hover:bg-red-50 transition">
                                 <Icons.Home /> <span className="hidden lg:block font-bold text-sm">Logout</span>
                             </button>
@@ -646,10 +675,10 @@ function getHtml() {
                                 <div className="space-y-3">
                                     {activeQ.choices.map((c, i) => (
                                         <div key={c.id} className="flex items-center gap-3">
-                                            <div onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => ({ ...x, isCorrect: x.id === c.id })) })} className={\`w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition \${c.isCorrect ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300'}\`}>
+                                            <div onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => ({ ...x, isCorrect: x.id === c.id })) })} className={`w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition ${c.isCorrect ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300'}`}>
                                                 {c.isCorrect && <span className="font-bold text-sm">✓</span>}
                                             </div>
-                                            <input value={c.text} onChange={e => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => x.id === c.id ? { ...x, text: e.target.value } : x) })} className="flex-1 bg-gray-50 p-3 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-orange-200" placeholder={\`Option \${i + 1}\`} />
+                                            <input value={c.text} onChange={e => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => x.id === c.id ? { ...x, text: e.target.value } : x) })} className="flex-1 bg-gray-50 p-3 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-orange-200" placeholder={`Option ${i + 1}`} />
                                             <button onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.filter(x => x.id !== c.id) })} className="text-gray-300 px-2">×</button>
                                         </div>
                                     ))}
@@ -733,7 +762,7 @@ function getHtml() {
                                         <h4 className="font-bold text-slate-800">{h.title}</h4>
                                         <p className="text-xs text-gray-400 font-bold">{new Date(h.timestamp).toLocaleDateString()}</p>
                                     </div>
-                                    <div className={\`text-lg font-black \${(h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400'}\`}>
+                                    <div className={`text-lg font-black ${ (h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400'}`}>
                                         {h.score}/{h.total}
                                     </div>
                                 </div>
@@ -797,21 +826,21 @@ function getHtml() {
                 setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000);
             };
 
-            if(linkId) return <StudentExamApp linkId={linkId} />; // Isolated Exam App
+            if(linkId) return <ErrorBoundary><StudentExamApp linkId={linkId} /></ErrorBoundary>; // Isolated Exam App
             if(!status) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400 animate-pulse">Loading My Class...</div>;
 
-            if(!status.hasAdmin) return <><Setup onComplete={() => setStatus({hasAdmin:true})} addToast={addToast} /><ToastContainer toasts={toasts}/></>;
+            if(!status.hasAdmin) return <ErrorBoundary><><Setup onComplete={() => setStatus({hasAdmin:true})} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
 
-            if(route === 'student') return <StudentPortal onBack={()=>window.location.hash=''} />;
+            if(route === 'student') return <ErrorBoundary><StudentPortal onBack={()=>window.location.hash=''} /></ErrorBoundary>;
             
             // Teacher/Admin Routing
             if(user) {
-                if(user.role === 'super_admin') return <><AdminView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></>;
-                return <><TeacherView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></>;
+                if(user.role === 'super_admin') return <ErrorBoundary><><AdminView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
+                return <ErrorBoundary><><TeacherView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
             }
 
             // Auth View
-            if(route === 'login') return <><Login onLogin={loginUser} addToast={addToast} onBack={()=>setRoute('landing')} /><ToastContainer toasts={toasts}/></>;
+            if(route === 'login') return <ErrorBoundary><><Login onLogin={loginUser} addToast={addToast} onBack={()=>setRoute('landing')} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
 
             // Landing
             return (
@@ -845,7 +874,7 @@ function getHtml() {
             const [qTime, setQTime] = useState(0);
             const [totalTime, setTotalTime] = useState(0);
 
-            useEffect(() => { fetch(\`/api/exam/get?link_id=\${linkId}\`).then(r=>r.json()).then(d => d.exam?.is_active ? setExam(d) : alert("Exam Closed")); }, [linkId]);
+            useEffect(() => { fetch(`/api/exam/get?link_id=${linkId}`).then(r=>r.json()).then(d => d.exam?.is_active ? setExam(d) : alert("Exam Closed")); }, [linkId]);
 
             // Timer Tick
             useEffect(() => {
@@ -940,18 +969,18 @@ function getHtml() {
                 <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-6">
                     <div className="w-full max-w-md flex justify-between items-center mb-8">
                         <div className="font-bold text-slate-500 uppercase text-xs tracking-widest">Question {qIdx+1}/{exam.questions.length}</div>
-                        <div className={\`text-xl font-mono font-bold \${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}\`}>
+                        <div className={`text-xl font-mono font-bold ${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}`}>
                             {settings.timerMode === 'question' ? qTime : Math.floor(totalTime/60) + ':' + (totalTime%60).toString().padStart(2,'0')}
                         </div>
                     </div>
                     <div className="w-full max-w-md flex-1 flex flex-col justify-center">
                         <div className="bg-white text-slate-900 p-6 rounded-3xl mb-6 text-center shadow-2xl">
-                            {exam.questions[qIdx].image_key && <img src={\`/img/\${exam.questions[qIdx].image_key}\`} className="h-40 mx-auto object-contain mb-4" />}
+                            {exam.questions[qIdx].image_key && <img src={`/img/${exam.questions[qIdx].image_key}`} className="h-40 mx-auto object-contain mb-4" />}
                             <h2 className="text-xl font-bold">{exam.questions[qIdx].text}</h2>
                         </div>
                         <div className="grid grid-cols-1 gap-3">
                             {JSON.parse(exam.questions[qIdx].choices).map(c => (
-                                <button key={c.id} onClick={()=>{ setAnswers({...answers, [exam.questions[qIdx].id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }} className={\`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 \${answers[exam.questions[qIdx].id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}\`}>
+                                <button key={c.id} onClick={()=>{ setAnswers({...answers, [exam.questions[qIdx].id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }} className={`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 ${answers[exam.questions[qIdx].id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}`}>
                                     {c.text}
                                 </button>
                             ))}
@@ -984,7 +1013,7 @@ function getHtml() {
                                         <div key={i} className="flex items-center gap-4">
                                             <div className="text-xs font-bold text-slate-500 w-24">{new Date(h.timestamp).toLocaleDateString()}</div>
                                             <div className="flex-1 bg-slate-700 h-4 rounded-full overflow-hidden">
-                                                <div className="bg-blue-500 h-full" style={{width: \`\${(h.score/h.total)*100}%\`}}></div>
+                                                <div className="bg-blue-500 h-full" style={{width: `${(h.score/h.total)*100}%`}}></div>
                                             </div>
                                             <div className="font-bold text-sm">{h.score}/{h.total}</div>
                                         </div>
@@ -997,7 +1026,7 @@ function getHtml() {
                         <div className="space-y-4">
                             <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
                             {resultDetails.map((q, i) => (
-                                <div key={i} className={\`p-6 rounded-2xl border \${q.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}>
+                                <div key={i} className={`p-6 rounded-2xl border ${q.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}`}>
                                     <div className="font-bold text-lg mb-3">Q{i+1}. {q.qText}</div>
                                     <div className="space-y-2">
                                         {q.choices.map(c => {
@@ -1009,7 +1038,7 @@ function getHtml() {
                                             else if (isSelected && !q.isCorrect) style = "bg-red-500 text-white border-red-500";
                                             
                                             return (
-                                                <div key={c.id} className={\`p-3 rounded-xl border flex justify-between items-center \${style}\`}>
+                                                <div key={c.id} className={`p-3 rounded-xl border flex justify-between items-center ${style}`}>
                                                     <span className="font-bold">{c.text}</span>
                                                     {isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">You</span>}
                                                     {isCorrectChoice && !isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">Correct</span>}
@@ -1060,7 +1089,7 @@ function getHtml() {
         function ExamStats({ examId }) {
             const [data, setData] = useState([]);
             useEffect(() => { 
-                fetch(\`/api/analytics/exam?exam_id=\${examId}\`)
+                fetch(`/api/analytics/exam?exam_id=${examId}`)
                     .then(r=>r.json())
                     .then(d => setData(Array.isArray(d) ? d : []))
                     .catch(() => setData([]));
