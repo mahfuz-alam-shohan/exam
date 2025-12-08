@@ -2,7 +2,7 @@
  * Cloudflare Worker - My Class (SaaS Masterclass)
  * - Branding: "My Class" (Playful, Kiddy, Mobile-First)
  * - Features: Persisted Session, Hash Routing, Mobile Bottom Nav, Deep Analytics, JSON Import
- * - Fixes: Restored missing Icons causing crash (Plus, Chart, etc.), Removed duplicate code
+ * - Fixes: Escaped all backticks in ExamEditor and StudentExamApp to prevent build errors
  */
 
 export default {
