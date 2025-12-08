@@ -1,7 +1,7 @@
 /**
  * Cloudflare Worker - My Class (SaaS Masterclass)
  * - Branding: "My Class" (Playful, Kiddy, Mobile-First)
- * - Features: Persisted Session, Hash Routing, Mobile Bottom Nav, Deep Analytics
+ * - Features: Persisted Session, Hash Routing, Mobile Bottom Nav, Deep Analytics, JSON Import
  * - Fixes: Restored missing Icons causing crash (Plus, Chart, etc.), Removed duplicate code
  */
 
@@ -396,6 +396,8 @@ function getHtml() {
             Check: () => <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>,
             X: () => <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>,
             Trophy: () => <svg className="w-8 h-8 text-yellow-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd"/><path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z"/></svg>,
+            Upload: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>,
+            Download: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>,
         };
 
         // --- SHARED COMPONENTS ---
@@ -699,6 +701,54 @@ function getHtml() {
                 onFinish();
             };
 
+            // JSON Import Handlers
+            const handleJsonImport = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const json = JSON.parse(event.target.result);
+                        if (!Array.isArray(json)) throw new Error("Root must be an array");
+                        const newQs = json.map(q => ({
+                            text: q.text || "Untitled Question",
+                            choices: Array.isArray(q.choices) ? q.choices.map((c, i) => ({
+                                id: Date.now() + Math.random() + i,
+                                text: c.text || "",
+                                isCorrect: !!c.isCorrect
+                            })) : [],
+                            tempId: Date.now() + Math.random()
+                        }));
+                        setQs(prev => [...prev, ...newQs]);
+                        addToast(\`Imported \${newQs.length} questions\`);
+                    } catch (err) {
+                        addToast("Invalid JSON Format", 'error');
+                        console.error(err);
+                    }
+                };
+                reader.readAsText(file);
+                e.target.value = null;
+            };
+
+            const downloadTemplate = () => {
+                const example = [
+                    {
+                        "text": "What is the capital of France?",
+                        "choices": [
+                            {"text": "London", "isCorrect": false},
+                            {"text": "Paris", "isCorrect": true},
+                            {"text": "Berlin", "isCorrect": false}
+                        ]
+                    }
+                ];
+                const blob = new Blob([JSON.stringify(example, null, 2)], {type: "application/json"});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = "exam_example.json";
+                a.click();
+            };
+
             return (
                 <div className="min-h-screen bg-white md:bg-gray-50 flex flex-col">
                     <div className="sticky top-0 bg-white border-b border-orange-100 p-4 flex justify-between items-center z-40">
@@ -733,6 +783,17 @@ function getHtml() {
                             <div>
                                 <div className="flex justify-between items-end mb-4">
                                     <label className="text-xs font-bold text-gray-400 uppercase">Questions ({qs.length})</label>
+                                </div>
+
+                                {/* Import Toolbar */}
+                                <div className="flex gap-2 mb-4">
+                                    <label className="flex items-center gap-2 bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-sm font-bold cursor-pointer hover:bg-indigo-100 transition">
+                                        <Icons.Upload /> Import JSON
+                                        <input type="file" className="hidden" accept=".json" onChange={handleJsonImport} />
+                                    </label>
+                                    <button onClick={downloadTemplate} className="flex items-center gap-2 bg-gray-50 text-gray-500 px-4 py-2 rounded-xl text-sm font-bold hover:bg-gray-100 transition">
+                                        <Icons.Download /> Example
+                                    </button>
                                 </div>
                                 
                                 <div className="space-y-3 mb-20">
