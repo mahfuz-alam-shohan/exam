@@ -2,7 +2,7 @@
  * Cloudflare Worker - My Class (SaaS Masterclass)
  * - Branding: "My Class" (Playful, Kiddy, Mobile-First)
  * - Features: Persisted Session, Hash Routing, Mobile Bottom Nav, Deep Analytics
- * - Fixes: Escaped backticks in HTML template to prevent build errors
+ * - Fixes: Removed duplicate definitions, fixed blank screen crash
  */
 
 export default {
@@ -410,6 +410,39 @@ function getHtml() {
             </button>
         );
 
+        // --- AUTH & MISC COMPONENTS (Defined first to be available) ---
+        function Setup({ onComplete, addToast }) { 
+             const handle = async (e) => { e.preventDefault(); await fetch('/api/system/init', { method: 'POST' }); const res = await fetch('/api/auth/setup-admin', { method: 'POST', body: JSON.stringify({ name: e.target.name.value, username: e.target.username.value, password: e.target.password.value }) }); if(res.ok) onComplete(); else addToast("Failed", 'error'); };
+             return (<div className="min-h-screen bg-orange-50 flex items-center justify-center p-4"><form onSubmit={handle} className="bg-white p-8 rounded-3xl w-full max-w-sm shadow-xl"><h2 className="font-bold text-xl mb-4">Setup School</h2><input name="name" placeholder="School Name" className="w-full bg-gray-50 p-3 rounded-xl mb-3 font-bold" /><input name="username" placeholder="Admin User" className="w-full bg-gray-50 p-3 rounded-xl mb-3 font-bold" /><input name="password" type="password" placeholder="Password" className="w-full bg-gray-50 p-3 rounded-xl mb-4 font-bold" /><button className="w-full bg-orange-500 text-white p-3 rounded-xl font-bold">Start</button></form></div>);
+        }
+
+        function Login({ onLogin, addToast, onBack }) { 
+             const handle = async (e) => { e.preventDefault(); const res = await fetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ username: e.target.username.value, password: e.target.password.value }) }); const data = await res.json(); if(data.success) onLogin(data.user); else addToast("Wrong Password!", 'error'); };
+             return (<div className="min-h-screen bg-orange-50 flex items-center justify-center p-4"><form onSubmit={handle} className="bg-white p-8 rounded-3xl w-full max-w-sm shadow-xl relative"><button type="button" onClick={onBack} className="absolute top-6 left-6 font-bold text-gray-400">Back</button><h2 className="font-bold text-2xl mb-6 text-center">Teacher Login</h2><input name="username" placeholder="Username" className="w-full bg-gray-50 p-4 rounded-xl mb-4 font-bold outline-none focus:ring-2 focus:ring-orange-200" /><input name="password" type="password" placeholder="Password" className="w-full bg-gray-50 p-4 rounded-xl mb-6 font-bold outline-none focus:ring-2 focus:ring-orange-200" /><button className="w-full bg-slate-900 text-white p-4 rounded-xl font-bold shadow-lg btn-bounce">Sign In</button></form></div>);
+        }
+
+        function StudentList() {
+            const [list, setList] = useState([]);
+            useEffect(() => { 
+                fetch('/api/students/list')
+                    .then(r=>r.json())
+                    .then(d => setList(Array.isArray(d) ? d : []))
+                    .catch(() => setList([])); 
+            }, []);
+            return <div className="grid gap-3 pb-20">{list.map(s=><div key={s.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center"><div><div className="font-bold">{s.name}</div><div className="text-xs text-gray-400">{s.school_id}</div></div><div className="font-bold text-green-500">{Math.round(s.avg_score||0)}%</div></div>)}</div>
+        }
+
+        function ExamStats({ examId }) {
+            const [data, setData] = useState([]);
+            useEffect(() => { 
+                fetch(\`/api/analytics/exam?exam_id=\${examId}\`)
+                    .then(r=>r.json())
+                    .then(d => setData(Array.isArray(d) ? d : []))
+                    .catch(() => setData([]));
+            }, [examId]);
+            return <div className="space-y-3 pb-20">{data.map(r=><div key={r.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between"><span>{r.name}</span><span className="font-bold">{r.score}/{r.total}</span></div>)}</div>
+        }
+
         // --- DASHBOARD LAYOUT (Responsive) ---
         function DashboardLayout({ user, onLogout, title, action, children, activeTab, onTabChange }) {
             const safeUser = user || { name: 'User', role: 'teacher' };
@@ -487,7 +520,52 @@ function getHtml() {
 
         // --- VIEWS ---
 
-        // 1. TEACHER DASHBOARD
+        // 1. ADMIN DASHBOARD
+        function AdminView({ user, onLogout, addToast }) {
+            const [activeTab, setActiveTab] = useState('settings');
+
+            const handleReset = async () => {
+                if(!confirm("⚠️ DANGER: This will delete ALL exams, questions, students, and results permanently. Are you sure?")) return;
+                const res = await fetch('/api/system/reset', { method: 'POST' });
+                if(res.ok) addToast("System has been factory reset.");
+                else addToast("Reset failed.", 'error');
+            };
+
+            const addTeacher = async (e) => {
+                e.preventDefault();
+                const res = await fetch('/api/admin/teachers', {
+                    method: 'POST',
+                    body: JSON.stringify({ name: e.target.name.value, username: e.target.username.value, password: e.target.password.value })
+                });
+                if(res.ok) { addToast("Teacher Added"); e.target.reset(); }
+                else addToast("Failed", 'error');
+            };
+
+            return (
+                <DashboardLayout user={user} onLogout={onLogout} title="System Admin" activeTab={activeTab} onTabChange={setActiveTab}>
+                    {activeTab === 'settings' && (
+                        <div className="space-y-8 anim-enter">
+                            <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200">
+                                <h3 className="text-lg font-bold text-gray-900 mb-4">Add New Teacher</h3>
+                                <form onSubmit={addTeacher} className="flex gap-4">
+                                    <input name="name" placeholder="Name" className="border p-2 rounded flex-1" required />
+                                    <input name="username" placeholder="Username" className="border p-2 rounded flex-1" required />
+                                    <input name="password" placeholder="Password" className="border p-2 rounded flex-1" required />
+                                    <button className="bg-indigo-600 text-white px-6 rounded font-bold">Add</button>
+                                </form>
+                            </div>
+                            <div className="bg-red-50 p-8 rounded-xl border border-red-200">
+                                <h3 className="text-lg font-bold text-red-900 mb-2">Danger Zone</h3>
+                                <p className="text-red-700 mb-4 text-sm">Performing a system reset will wipe all database records except admin accounts. This cannot be undone.</p>
+                                <button onClick={handleReset} className="bg-red-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-red-700 shadow-lg shadow-red-200 transition">Factory Reset Database</button>
+                            </div>
+                        </div>
+                    )}
+                </DashboardLayout>
+            );
+        }
+
+        // 2. TEACHER DASHBOARD
         function TeacherView({ user, onLogout, addToast }) {
             const [tab, setTab] = useState('exams');
             const [mode, setMode] = useState('list'); // list, create, stats
@@ -558,7 +636,7 @@ function getHtml() {
             );
         }
 
-        // 2. EXAM EDITOR (Mobile Friendly)
+        // 3. EXAM EDITOR (Mobile Friendly)
         function ExamEditor({ user, examId, onCancel, onFinish, addToast }) {
             const [step, setStep] = useState('setup'); // setup, questions
             const [meta, setMeta] = useState({ title: '', timerMode: 'question', timerValue: 30, studentFields: { name: true, roll: true, school_id: true }, allowBack: false, allowRetakes: false, showResult: true });
@@ -689,7 +767,7 @@ function getHtml() {
             );
         }
 
-        // 3. STUDENT HUB (Gamified)
+        // 4. STUDENT HUB (Gamified)
         function StudentPortal({ onBack }) {
             const [id, setId] = useState('');
             const [data, setData] = useState(null);
@@ -772,90 +850,7 @@ function getHtml() {
             );
         }
 
-        // --- APP ROOT (ROUTER) ---
-        function App() {
-            const [status, setStatus] = useState(null);
-            const [user, setUser] = useState(null);
-            const [route, setRoute] = useState('landing');
-            const [toasts, setToasts] = useState([]);
-            const linkId = new URLSearchParams(window.location.search).get('exam');
-
-            // Hash Router
-            useEffect(() => {
-                const checkHash = () => {
-                    const h = window.location.hash.slice(1);
-                    if(h === 'teacher' && user) setRoute('teacher');
-                    else if(h === 'student') setRoute('student');
-                    else if(h === 'admin' && user?.role === 'super_admin') setRoute('admin');
-                    else if(!linkId) setRoute('landing');
-                }
-                window.addEventListener('hashchange', checkHash);
-                return () => window.removeEventListener('hashchange', checkHash);
-            }, [user]);
-
-            // Persist User
-            useEffect(() => {
-                try {
-                    const u = localStorage.getItem('mc_user');
-                    if(u) setUser(JSON.parse(u));
-                } catch(e) { console.error(e); }
-                fetch('/api/system/status')
-                    .then(r=>r.json())
-                    .then(setStatus)
-                    .catch(e=>setStatus({installed:false, hasAdmin:false})); 
-            }, []);
-
-            const loginUser = (u) => {
-                setUser(u);
-                localStorage.setItem('mc_user', JSON.stringify(u));
-                window.location.hash = u.role === 'super_admin' ? 'admin' : 'teacher';
-            };
-
-            const logoutUser = () => {
-                setUser(null);
-                localStorage.removeItem('mc_user');
-                window.location.hash = '';
-                setRoute('landing');
-            };
-
-            const addToast = (msg, type='success') => {
-                const id = Date.now();
-                setToasts(p => [...p, {id, msg, type}]);
-                setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000);
-            };
-
-            if(linkId) return <ErrorBoundary><StudentExamApp linkId={linkId} /></ErrorBoundary>; // Isolated Exam App
-            if(!status) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400 animate-pulse">Loading My Class...</div>;
-
-            if(!status.hasAdmin) return <ErrorBoundary><><Setup onComplete={() => setStatus({hasAdmin:true})} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
-
-            if(route === 'student') return <ErrorBoundary><StudentPortal onBack={()=>window.location.hash=''} /></ErrorBoundary>;
-            
-            // Teacher/Admin Routing
-            if(user) {
-                if(user.role === 'super_admin') return <ErrorBoundary><><AdminView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
-                return <ErrorBoundary><><TeacherView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
-            }
-
-            // Auth View
-            if(route === 'login') return <ErrorBoundary><><Login onLogin={loginUser} addToast={addToast} onBack={()=>setRoute('landing')} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
-
-            // Landing
-            return (
-                <div className="min-h-screen bg-orange-50 flex flex-col items-center justify-center p-6 text-center">
-                    <div className="w-24 h-24 bg-white rounded-[30px] shadow-xl flex items-center justify-center text-orange-500 mb-6 anim-pop"><Icons.Logo /></div>
-                    <h1 className="text-4xl font-black text-slate-800 mb-2">My Class</h1>
-                    <p className="text-gray-500 font-bold mb-10">Fun Learning & Testing Platform</p>
-                    <div className="w-full max-w-xs space-y-4">
-                        <button onClick={()=>{window.location.hash='student'; setRoute('student')}} className="w-full bg-indigo-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-indigo-200 btn-bounce">Student Hub</button>
-                        <button onClick={()=>setRoute('login')} className="w-full bg-white text-slate-700 p-4 rounded-2xl font-bold shadow-sm border border-gray-100 btn-bounce">Teacher Login</button>
-                    </div>
-                </div>
-            );
-        }
-
-        // --- SUB-APPS (Code Splitting Logic) ---
-        
+        // 5. EXAM TAKER (Isolated App)
         function StudentExamApp({ linkId }) {
             const [mode, setMode] = useState('identify'); 
             const [student, setStudent] = useState({ name: '', school_id: '', roll: '' }); 
@@ -1061,38 +1056,81 @@ function getHtml() {
             );
         }
 
-        // --- AUTH COMPS ---
-        function Setup({ onComplete, addToast }) { 
-             const handle = async (e) => { e.preventDefault(); await fetch('/api/system/init', { method: 'POST' }); const res = await fetch('/api/auth/setup-admin', { method: 'POST', body: JSON.stringify({ name: e.target.name.value, username: e.target.username.value, password: e.target.password.value }) }); if(res.ok) onComplete(); else addToast("Failed", 'error'); };
-             return (<div className="min-h-screen bg-orange-50 flex items-center justify-center p-4"><form onSubmit={handle} className="bg-white p-8 rounded-3xl w-full max-w-sm shadow-xl"><h2 className="font-bold text-xl mb-4">Setup School</h2><input name="name" placeholder="School Name" className="w-full bg-gray-50 p-3 rounded-xl mb-3 font-bold" /><input name="username" placeholder="Admin User" className="w-full bg-gray-50 p-3 rounded-xl mb-3 font-bold" /><input name="password" type="password" placeholder="Password" className="w-full bg-gray-50 p-3 rounded-xl mb-4 font-bold" /><button className="w-full bg-orange-500 text-white p-3 rounded-xl font-bold">Start</button></form></div>);
-        }
-        function Login({ onLogin, addToast, onBack }) { 
-             const handle = async (e) => { e.preventDefault(); const res = await fetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ username: e.target.username.value, password: e.target.password.value }) }); const data = await res.json(); if(data.success) onLogin(data.user); else addToast("Wrong Password!", 'error'); };
-             return (<div className="min-h-screen bg-orange-50 flex items-center justify-center p-4"><form onSubmit={handle} className="bg-white p-8 rounded-3xl w-full max-w-sm shadow-xl relative"><button type="button" onClick={onBack} className="absolute top-6 left-6 font-bold text-gray-400">Back</button><h2 className="font-bold text-2xl mb-6 text-center">Teacher Login</h2><input name="username" placeholder="Username" className="w-full bg-gray-50 p-4 rounded-xl mb-4 font-bold outline-none focus:ring-2 focus:ring-orange-200" /><input name="password" type="password" placeholder="Password" className="w-full bg-gray-50 p-4 rounded-xl mb-6 font-bold outline-none focus:ring-2 focus:ring-orange-200" /><button className="w-full bg-slate-900 text-white p-4 rounded-xl font-bold shadow-lg btn-bounce">Sign In</button></form></div>);
-        }
-        function AdminView({ user, onLogout, addToast }) {
-            const reset = async () => { if(confirm("RESET ALL DATA?")) { await fetch('/api/system/reset', { method:'POST'}); addToast("Reset Done"); }};
-            return <div className="p-8"><h1 className="font-bold text-xl mb-4">Admin Controls</h1><button onClick={reset} className="bg-red-500 text-white p-4 rounded-xl font-bold w-full mb-4">Factory Reset Database</button><button onClick={onLogout} className="text-gray-400 font-bold">Logout</button></div>
-        }
-        function StudentList() {
-            const [list, setList] = useState([]);
-            useEffect(() => { 
-                fetch('/api/students/list')
+        // --- APP ROOT ---
+        function App() {
+            const [status, setStatus] = useState(null);
+            const [user, setUser] = useState(null);
+            const [route, setRoute] = useState('landing');
+            const [toasts, setToasts] = useState([]);
+            const linkId = new URLSearchParams(window.location.search).get('exam');
+
+            useEffect(() => {
+                const checkHash = () => {
+                    const h = window.location.hash.slice(1);
+                    if(h === 'teacher' && user) setRoute('teacher');
+                    else if(h === 'student') setRoute('student');
+                    else if(h === 'admin' && user?.role === 'super_admin') setRoute('admin');
+                    else if(!linkId) setRoute('landing');
+                }
+                window.addEventListener('hashchange', checkHash);
+                return () => window.removeEventListener('hashchange', checkHash);
+            }, [user]);
+
+            useEffect(() => {
+                try {
+                    const u = localStorage.getItem('mc_user');
+                    if(u) setUser(JSON.parse(u));
+                } catch(e) { console.error(e); }
+                fetch('/api/system/status')
                     .then(r=>r.json())
-                    .then(d => setList(Array.isArray(d) ? d : []))
-                    .catch(() => setList([])); 
+                    .then(setStatus)
+                    .catch(e=>setStatus({installed:false, hasAdmin:false})); 
             }, []);
-            return <div className="grid gap-3 pb-20">{list.map(s=><div key={s.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center"><div><div className="font-bold">{s.name}</div><div className="text-xs text-gray-400">{s.school_id}</div></div><div className="font-bold text-green-500">{Math.round(s.avg_score||0)}%</div></div>)}</div>
-        }
-        function ExamStats({ examId }) {
-            const [data, setData] = useState([]);
-            useEffect(() => { 
-                fetch(\`/api/analytics/exam?exam_id=\${examId}\`)
-                    .then(r=>r.json())
-                    .then(d => setData(Array.isArray(d) ? d : []))
-                    .catch(() => setData([]));
-            }, [examId]);
-            return <div className="space-y-3 pb-20">{data.map(r=><div key={r.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between"><span>{r.name}</span><span className="font-bold">{r.score}/{r.total}</span></div>)}</div>
+
+            const loginUser = (u) => {
+                setUser(u);
+                localStorage.setItem('mc_user', JSON.stringify(u));
+                window.location.hash = u.role === 'super_admin' ? 'admin' : 'teacher';
+            };
+
+            const logoutUser = () => {
+                setUser(null);
+                localStorage.removeItem('mc_user');
+                window.location.hash = '';
+                setRoute('landing');
+            };
+
+            const addToast = (msg, type='success') => {
+                const id = Date.now();
+                setToasts(p => [...p, {id, msg, type}]);
+                setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000);
+            };
+
+            if(linkId) return <ErrorBoundary><StudentExamApp linkId={linkId} /></ErrorBoundary>;
+            if(!status) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400 animate-pulse">Loading My Class...</div>;
+
+            if(!status.hasAdmin) return <ErrorBoundary><><Setup onComplete={() => setStatus({hasAdmin:true})} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
+
+            if(route === 'student') return <ErrorBoundary><StudentPortal onBack={()=>window.location.hash=''} /></ErrorBoundary>;
+            
+            if(user) {
+                if(user.role === 'super_admin') return <ErrorBoundary><><AdminView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
+                return <ErrorBoundary><><TeacherView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
+            }
+
+            if(route === 'login') return <ErrorBoundary><><Login onLogin={loginUser} addToast={addToast} onBack={()=>setRoute('landing')} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
+
+            return (
+                <div className="min-h-screen bg-orange-50 flex flex-col items-center justify-center p-6 text-center">
+                    <div className="w-24 h-24 bg-white rounded-[30px] shadow-xl flex items-center justify-center text-orange-500 mb-6 anim-pop"><Icons.Logo /></div>
+                    <h1 className="text-4xl font-black text-slate-800 mb-2">My Class</h1>
+                    <p className="text-gray-500 font-bold mb-10">Fun Learning & Testing Platform</p>
+                    <div className="w-full max-w-xs space-y-4">
+                        <button onClick={()=>{window.location.hash='student'; setRoute('student')}} className="w-full bg-indigo-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-indigo-200 btn-bounce">Student Hub</button>
+                        <button onClick={()=>setRoute('login')} className="w-full bg-white text-slate-700 p-4 rounded-2xl font-bold shadow-sm border border-gray-100 btn-bounce">Teacher Login</button>
+                    </div>
+                </div>
+            );
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
