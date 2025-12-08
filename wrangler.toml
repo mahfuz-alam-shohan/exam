@@ -1,4 +1,4 @@
-name = "exam-system"
+name = "exam"
 main = "src/index.js"
 compatibility_date = "2024-03-20"
 
