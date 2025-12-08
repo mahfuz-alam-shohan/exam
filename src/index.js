@@ -2,7 +2,7 @@
  * Cloudflare Worker - My Class (SaaS Masterclass)
  * - Branding: "My Class" (Playful, Kiddy, Mobile-First)
  * - Features: Persisted Session, Hash Routing, Mobile Bottom Nav, Deep Analytics
- * - Fixes: Removed duplicate definitions, fixed blank screen crash
+ * - Fixes: Restored missing Icons causing crash (Plus, Chart, etc.), Removed duplicate code
  */
 
 export default {
@@ -380,7 +380,7 @@ function getHtml() {
             }
         }
 
-        // --- ICONS (Rounded & Friendly) ---
+        // --- ICONS (COMPLETE SET) ---
         const Icons = {
             Logo: () => <svg className="w-8 h-8 text-orange-500" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zm0 9l2.5-1.25L12 8.5l-2.5 1.25L12 11zm0 2.5l-5-2.5-5 2.5L12 22l10-8.5-5-2.5-5 2.5z"/></svg>,
             Home: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>,
@@ -390,7 +390,12 @@ function getHtml() {
             Back: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>,
             Edit: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>,
             Trash: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
-            Image: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+            Image: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>,
+            Plus: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>,
+            Chart: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>,
+            Check: () => <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>,
+            X: () => <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>,
+            Trophy: () => <svg className="w-8 h-8 text-yellow-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd"/><path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z"/></svg>,
         };
 
         // --- SHARED COMPONENTS ---
@@ -410,7 +415,7 @@ function getHtml() {
             </button>
         );
 
-        // --- AUTH & MISC COMPONENTS (Defined first to be available) ---
+        // --- AUTH & MISC COMPONENTS ---
         function Setup({ onComplete, addToast }) { 
              const handle = async (e) => { e.preventDefault(); await fetch('/api/system/init', { method: 'POST' }); const res = await fetch('/api/auth/setup-admin', { method: 'POST', body: JSON.stringify({ name: e.target.name.value, username: e.target.username.value, password: e.target.password.value }) }); if(res.ok) onComplete(); else addToast("Failed", 'error'); };
              return (<div className="min-h-screen bg-orange-50 flex items-center justify-center p-4"><form onSubmit={handle} className="bg-white p-8 rounded-3xl w-full max-w-sm shadow-xl"><h2 className="font-bold text-xl mb-4">Setup School</h2><input name="name" placeholder="School Name" className="w-full bg-gray-50 p-3 rounded-xl mb-3 font-bold" /><input name="username" placeholder="Admin User" className="w-full bg-gray-50 p-3 rounded-xl mb-3 font-bold" /><input name="password" type="password" placeholder="Password" className="w-full bg-gray-50 p-3 rounded-xl mb-4 font-bold" /><button className="w-full bg-orange-500 text-white p-3 rounded-xl font-bold">Start</button></form></div>);
@@ -434,13 +439,34 @@ function getHtml() {
 
         function ExamStats({ examId }) {
             const [data, setData] = useState([]);
+            const [viewDetail, setViewDetail] = useState(null);
+            
             useEffect(() => { 
                 fetch(\`/api/analytics/exam?exam_id=\${examId}\`)
                     .then(r=>r.json())
                     .then(d => setData(Array.isArray(d) ? d : []))
                     .catch(() => setData([]));
             }, [examId]);
-            return <div className="space-y-3 pb-20">{data.map(r=><div key={r.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between"><span>{r.name}</span><span className="font-bold">{r.score}/{r.total}</span></div>)}</div>
+
+            if(viewDetail) return (
+                <div className="bg-white rounded-xl border p-6 anim-enter">
+                    <button onClick={()=>setViewDetail(null)} className="mb-4 text-sm font-bold text-gray-500">← Back to List</button>
+                    <h3 className="font-bold text-xl mb-4">{viewDetail.name}'s Answers</h3>
+                    <div className="space-y-4">
+                        {JSON.parse(viewDetail.details || '[]').map((d,i) => (
+                            <div key={i} className={\`p-4 rounded-lg border \${d.isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}\`}>
+                                <div className="font-bold text-gray-800 mb-1">Q{i+1}: {d.qText}</div>
+                                <div className="text-sm">
+                                    <span className="font-bold">Student:</span> {d.selectedText} 
+                                    {!d.isCorrect && <span className="ml-4 text-gray-600"><span className="font-bold">Correct:</span> {d.correctText}</span>}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )
+
+            return <div className="space-y-3 pb-20">{data.map(r=><div key={r.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center"><div><div className="font-bold">{r.name}</div><div className="text-xs text-gray-500">{new Date(r.timestamp).toLocaleString()}</div></div><div className="flex items-center gap-3"><span className="font-bold">{r.score}/{r.total}</span><button onClick={()=>setViewDetail(r)} className="text-indigo-600 text-xs font-bold border border-indigo-200 px-2 py-1 rounded">View</button></div></div>)}</div>
         }
 
         // --- DASHBOARD LAYOUT (Responsive) ---
@@ -636,7 +662,7 @@ function getHtml() {
             );
         }
 
-        // 3. EXAM EDITOR (Mobile Friendly)
+        // 2. EXAM EDITOR (Mobile Friendly)
         function ExamEditor({ user, examId, onCancel, onFinish, addToast }) {
             const [step, setStep] = useState('setup'); // setup, questions
             const [meta, setMeta] = useState({ title: '', timerMode: 'question', timerValue: 30, studentFields: { name: true, roll: true, school_id: true }, allowBack: false, allowRetakes: false, showResult: true });
@@ -1064,6 +1090,7 @@ function getHtml() {
             const [toasts, setToasts] = useState([]);
             const linkId = new URLSearchParams(window.location.search).get('exam');
 
+            // Hash Router
             useEffect(() => {
                 const checkHash = () => {
                     const h = window.location.hash.slice(1);
@@ -1076,6 +1103,7 @@ function getHtml() {
                 return () => window.removeEventListener('hashchange', checkHash);
             }, [user]);
 
+            // Persist User
             useEffect(() => {
                 try {
                     const u = localStorage.getItem('mc_user');
@@ -1106,20 +1134,23 @@ function getHtml() {
                 setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000);
             };
 
-            if(linkId) return <ErrorBoundary><StudentExamApp linkId={linkId} /></ErrorBoundary>;
+            if(linkId) return <ErrorBoundary><StudentExamApp linkId={linkId} /></ErrorBoundary>; // Isolated Exam App
             if(!status) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400 animate-pulse">Loading My Class...</div>;
 
             if(!status.hasAdmin) return <ErrorBoundary><><Setup onComplete={() => setStatus({hasAdmin:true})} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
 
             if(route === 'student') return <ErrorBoundary><StudentPortal onBack={()=>window.location.hash=''} /></ErrorBoundary>;
             
+            // Teacher/Admin Routing
             if(user) {
                 if(user.role === 'super_admin') return <ErrorBoundary><><AdminView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
                 return <ErrorBoundary><><TeacherView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
             }
 
+            // Auth View
             if(route === 'login') return <ErrorBoundary><><Login onLogin={loginUser} addToast={addToast} onBack={()=>setRoute('landing')} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
 
+            // Landing
             return (
                 <div className="min-h-screen bg-orange-50 flex flex-col items-center justify-center p-6 text-center">
                     <div className="w-24 h-24 bg-white rounded-[30px] shadow-xl flex items-center justify-center text-orange-500 mb-6 anim-pop"><Icons.Logo /></div>
