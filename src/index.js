@@ -1,7 +1,7 @@
 /**
- * Cloudflare Worker - Exam System (SaaS Ultimate)
+ * Cloudflare Worker - Exam System (SaaS Masterclass)
  * - Roles: 'super_admin' (Owner), 'teacher' (Creators), 'student' (Takers)
- * - Features: Smart ID Check, Student Progress History, Link Toggle, Result Review, Edit Student Data
+ * - Features: Student Hub, Factory Reset, Exam Deletion, Image Previews, Distinct Flows
  */
 
 export default {
@@ -41,7 +41,7 @@ async function handleApi(request, env, path, url) {
   const method = request.method;
 
   try {
-    // 1. SYSTEM INIT & MIGRATION
+    // 1. SYSTEM INIT & RESET
     if (path === '/api/system/status' && method === 'GET') {
       try {
         const count = await env.DB.prepare("SELECT COUNT(*) as count FROM users").first('count');
@@ -53,7 +53,6 @@ async function handleApi(request, env, path, url) {
 
     if (path === '/api/system/init' && method === 'POST') {
       try {
-        // Base Tables
         await env.DB.batch([
           env.DB.prepare("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT, name TEXT, role TEXT DEFAULT 'teacher', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
           env.DB.prepare("CREATE TABLE IF NOT EXISTS students (id INTEGER PRIMARY KEY AUTOINCREMENT, school_id TEXT UNIQUE, name TEXT, roll TEXT, extra_info TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
@@ -61,15 +60,23 @@ async function handleApi(request, env, path, url) {
           env.DB.prepare("CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER, text TEXT, image_key TEXT, choices TEXT)"),
           env.DB.prepare("CREATE TABLE IF NOT EXISTS attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER, student_db_id INTEGER, score INTEGER, total INTEGER, details TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(student_db_id) REFERENCES students(id))")
         ]);
-        
-        // MIGRATIONS (Try to add columns if missing for updates)
-        try { await env.DB.prepare("ALTER TABLE students ADD COLUMN extra_info TEXT").run(); } catch(e) {}
-        try { await env.DB.prepare("ALTER TABLE exams ADD COLUMN is_active BOOLEAN DEFAULT 1").run(); } catch(e) {}
-
         return Response.json({ success: true });
       } catch (err) {
         return Response.json({ error: "DB Init Error: " + err.message }, { status: 500 });
       }
+    }
+
+    if (path === '/api/system/reset' && method === 'POST') {
+        // DANGER ZONE: Wipe data
+        await env.DB.batch([
+            env.DB.prepare("DELETE FROM students"),
+            env.DB.prepare("DELETE FROM exams"),
+            env.DB.prepare("DELETE FROM questions"),
+            env.DB.prepare("DELETE FROM attempts"),
+            // We keep users so admin doesn't lock themselves out, or optionally wipe everything except admin
+            // For safety, let's keep users.
+        ]);
+        return Response.json({ success: true });
     }
 
     // 2. AUTH
@@ -132,6 +139,17 @@ async function handleApi(request, env, path, url) {
       return Response.json({ success: true, id: examId, link_id });
     }
 
+    if (path === '/api/exam/delete' && method === 'POST') {
+        const { id } = await request.json();
+        // Batch delete everything related to exam
+        await env.DB.batch([
+            env.DB.prepare("DELETE FROM exams WHERE id = ?").bind(id),
+            env.DB.prepare("DELETE FROM questions WHERE exam_id = ?").bind(id),
+            env.DB.prepare("DELETE FROM attempts WHERE exam_id = ?").bind(id)
+        ]);
+        return Response.json({ success: true });
+    }
+
     if (path === '/api/exam/toggle' && method === 'POST') {
         const { id, is_active } = await request.json();
         await env.DB.prepare("UPDATE exams SET is_active = ? WHERE id = ?").bind(is_active ? 1 : 0, id).run();
@@ -145,7 +163,8 @@ async function handleApi(request, env, path, url) {
       const choices = formData.get('choices');
       const image = formData.get('image'); 
 
-      let image_key = null;
+      let image_key = formData.get('existing_image_key'); // Check if reusing key
+      
       if (image && image.size > 0) {
         image_key = crypto.randomUUID();
         await env.BUCKET.put(image_key, image);
@@ -169,22 +188,29 @@ async function handleApi(request, env, path, url) {
         return Response.json({ exam, questions: questions.results });
     }
 
-    // 4. STUDENT ENTRY & SMART CHECK
-    if (path === '/api/exam/get' && method === 'GET') {
-      const link_id = url.searchParams.get('link_id');
-      const exam = await env.DB.prepare("SELECT * FROM exams WHERE link_id = ?").bind(link_id).first();
-      if(!exam) return Response.json({ error: "Exam not found" }, { status: 404 });
-      
-      const questions = await env.DB.prepare("SELECT * FROM questions WHERE exam_id = ?").bind(exam.id).all();
-      return Response.json({ exam, questions: questions.results });
+    // 4. STUDENT PORTAL
+    if (path === '/api/student/portal-history' && method === 'POST') {
+        const { school_id } = await request.json();
+        const student = await env.DB.prepare("SELECT * FROM students WHERE school_id = ?").bind(school_id).first();
+        
+        if(!student) return Response.json({ found: false });
+
+        const history = await env.DB.prepare(`
+            SELECT a.*, e.title 
+            FROM attempts a 
+            JOIN exams e ON a.exam_id = e.id 
+            WHERE a.student_db_id = ? 
+            ORDER BY a.timestamp DESC
+        `).bind(student.id).all();
+
+        return Response.json({ found: true, student, history: history.results });
     }
-    
+
     if (path === '/api/student/identify' && method === 'POST') {
         const { school_id } = await request.json();
         const student = await env.DB.prepare("SELECT * FROM students WHERE school_id = ?").bind(school_id).first();
         
         if(student) {
-            // Get history stats
             const stats = await env.DB.prepare(`
                 SELECT COUNT(*) as total_exams, AVG(CAST(score AS FLOAT)/CAST(total AS FLOAT))*100 as avg_score 
                 FROM attempts WHERE student_db_id = ?
@@ -194,14 +220,32 @@ async function handleApi(request, env, path, url) {
         return Response.json({ found: false });
     }
 
-    // 5. SUBMISSION & DATA
+    // 5. EXAM DATA
+    if (path === '/api/exam/get' && method === 'GET') {
+      const link_id = url.searchParams.get('link_id');
+      const exam = await env.DB.prepare("SELECT * FROM exams WHERE link_id = ?").bind(link_id).first();
+      if(!exam) return Response.json({ error: "Exam not found" }, { status: 404 });
+      
+      const questions = await env.DB.prepare("SELECT * FROM questions WHERE exam_id = ?").bind(exam.id).all();
+      return Response.json({ exam, questions: questions.results });
+    }
+    
+    // Check eligibility
+    if (path === '/api/student/check' && method === 'POST') {
+        const { exam_id, school_id } = await request.json();
+        const student = await env.DB.prepare("SELECT id FROM students WHERE school_id = ?").bind(school_id).first();
+        if(!student) return Response.json({ canTake: true });
+        
+        const attempt = await env.DB.prepare("SELECT id FROM attempts WHERE exam_id = ? AND student_db_id = ?").bind(exam_id, student.id).first();
+        return Response.json({ canTake: !attempt });
+    }
+
     if (path === '/api/submit' && method === 'POST') {
       const { link_id, student, answers, score, total } = await request.json();
       
       const exam = await env.DB.prepare("SELECT id FROM exams WHERE link_id = ?").bind(link_id).first();
       if(!exam) return Response.json({error: "Invalid Exam"});
 
-      // Student Sync (Upsert)
       let studentRecord = await env.DB.prepare("SELECT id FROM students WHERE school_id = ?").bind(student.school_id).first();
       
       if (!studentRecord) {
@@ -209,7 +253,6 @@ async function handleApi(request, env, path, url) {
           .bind(student.school_id, student.name, student.roll).run();
         studentRecord = { id: res.meta.last_row_id };
       } else {
-        // Only update if provided
         if(student.name) {
              await env.DB.prepare("UPDATE students SET name = ?, roll = ? WHERE id = ?")
             .bind(student.name, student.roll, studentRecord.id).run();
@@ -222,7 +265,7 @@ async function handleApi(request, env, path, url) {
       return Response.json({ success: true });
     }
 
-    // 6. ANALYTICS & STUDENT MANAGEMENT
+    // 6. ANALYTICS
     if (path === '/api/analytics/exam' && method === 'GET') {
       const examId = url.searchParams.get('exam_id');
       const results = await env.DB.prepare(`
@@ -286,21 +329,22 @@ function getHtml() {
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Outfit:wght@300;500;800&display=swap" rel="stylesheet">
     <style>
-      body { font-family: 'Inter', sans-serif; }
+      body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
       .font-display { font-family: 'Outfit', sans-serif; }
       .anim-enter { animation: slideUp 0.3s ease-out; }
       .anim-pop { animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
       @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
       @keyframes popIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+      .glass { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); }
     </style>
 </head>
-<body class="bg-gray-50 text-gray-900 antialiased">
+<body class="text-gray-900 antialiased">
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // --- ICONS & UI HELPERS ---
+        // --- ICONS ---
         const Icons = {
             Logo: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>,
             User: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>,
@@ -309,9 +353,9 @@ function getHtml() {
             Chart: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>,
             Users: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>,
             Edit: () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>,
-            Eye: () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>,
-            Lock: () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>,
-            Unlock: () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" /></svg>,
+            Trash: () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
+            Setting: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
+            Image: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>,
         };
 
         function Toggle({ checked, onChange }) {
@@ -322,7 +366,6 @@ function getHtml() {
             );
         }
 
-        // --- TOAST ---
         function ToastContainer({ toasts }) {
             return (
                 <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
@@ -335,24 +378,28 @@ function getHtml() {
             );
         }
 
-        // --- DASHBOARD LAYOUT ---
+        // --- DASHBOARD ---
         function DashboardLayout({ user, onLogout, title, action, children, activeTab, onTabChange }) {
             return (
                 <div className="min-h-screen bg-gray-50 flex font-sans">
-                    {/* Sidebar */}
-                    <aside className="w-64 bg-slate-900 text-white flex-col hidden md:flex sticky top-0 h-screen">
+                    <aside className="w-64 bg-slate-900 text-white flex-col hidden md:flex sticky top-0 h-screen shadow-xl z-20">
                         <div className="p-6 flex items-center gap-3 border-b border-gray-800">
                             <div className="bg-indigo-500 p-1.5 rounded-lg text-white"><Icons.Logo /></div>
                             <span className="font-display font-bold text-xl tracking-tight">ExamMaster</span>
                         </div>
                         <nav className="flex-1 p-4 space-y-2">
                             <div className="px-4 py-2 text-xs uppercase text-gray-500 font-bold tracking-wider">Menu</div>
-                            <button onClick={()=>onTabChange && onTabChange('exams')} className={\`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition \${activeTab === 'exams' ? 'bg-indigo-600 shadow-lg shadow-indigo-900/50' : 'hover:bg-gray-800 text-gray-400'}\`}>
+                            <button onClick={()=>onTabChange('exams')} className={\`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition \${activeTab === 'exams' ? 'bg-indigo-600 shadow-lg shadow-indigo-900/50' : 'hover:bg-gray-800 text-gray-400'}\`}>
                                 <Icons.Chart /> My Exams
                             </button>
                             {user.role === 'teacher' && (
-                            <button onClick={()=>onTabChange && onTabChange('students')} className={\`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition \${activeTab === 'students' ? 'bg-indigo-600 shadow-lg shadow-indigo-900/50' : 'hover:bg-gray-800 text-gray-400'}\`}>
+                            <button onClick={()=>onTabChange('students')} className={\`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition \${activeTab === 'students' ? 'bg-indigo-600 shadow-lg shadow-indigo-900/50' : 'hover:bg-gray-800 text-gray-400'}\`}>
                                 <Icons.Users /> Students
+                            </button>
+                            )}
+                            {user.role === 'super_admin' && (
+                            <button onClick={()=>onTabChange('settings')} className={\`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition \${activeTab === 'settings' ? 'bg-indigo-600 shadow-lg shadow-indigo-900/50' : 'hover:bg-gray-800 text-gray-400'}\`}>
+                                <Icons.Setting /> Settings
                             </button>
                             )}
                         </nav>
@@ -367,10 +414,8 @@ function getHtml() {
                             </div>
                         </div>
                     </aside>
-
-                    {/* Main Content */}
-                    <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-                        <header className="bg-white border-b border-gray-200 px-8 py-5 flex justify-between items-center sticky top-0 z-20 shadow-sm">
+                    <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+                        <header className="bg-white border-b border-gray-200 px-8 py-5 flex justify-between items-center sticky top-0 z-10 shadow-sm backdrop-blur-md bg-white/80">
                             <h1 className="text-2xl font-display font-bold text-gray-900">{title}</h1>
                             {action}
                         </header>
@@ -379,6 +424,53 @@ function getHtml() {
                         </div>
                     </main>
                 </div>
+            );
+        }
+
+        // --- ADMIN VIEW ---
+        function AdminView({ user, onLogout, addToast }) {
+            const [activeTab, setActiveTab] = useState('settings');
+            const [teachers, setTeachers] = useState([]);
+
+            const handleReset = async () => {
+                if(!confirm("⚠️ DANGER: This will delete ALL exams, questions, students, and results permanently. Are you sure?")) return;
+                const res = await fetch('/api/system/reset', { method: 'POST' });
+                if(res.ok) addToast("System has been factory reset.");
+                else addToast("Reset failed.", 'error');
+            };
+
+            const addTeacher = async (e) => {
+                e.preventDefault();
+                const res = await fetch('/api/admin/teachers', {
+                    method: 'POST',
+                    body: JSON.stringify({ name: e.target.name.value, username: e.target.username.value, password: e.target.password.value })
+                });
+                if(res.ok) { addToast("Teacher Added"); e.target.reset(); }
+                else addToast("Failed", 'error');
+            };
+
+            return (
+                <DashboardLayout user={user} onLogout={onLogout} title="System Admin" activeTab={activeTab} onTabChange={setActiveTab}>
+                    {activeTab === 'settings' && (
+                        <div className="space-y-8 anim-enter">
+                            <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200">
+                                <h3 className="text-lg font-bold text-gray-900 mb-4">Add New Teacher</h3>
+                                <form onSubmit={addTeacher} className="flex gap-4">
+                                    <input name="name" placeholder="Name" className="border p-2 rounded flex-1" required />
+                                    <input name="username" placeholder="Username" className="border p-2 rounded flex-1" required />
+                                    <input name="password" placeholder="Password" className="border p-2 rounded flex-1" required />
+                                    <button className="bg-indigo-600 text-white px-6 rounded font-bold">Add</button>
+                                </form>
+                            </div>
+                            <div className="bg-red-50 p-8 rounded-xl border border-red-200">
+                                <h3 className="text-lg font-bold text-red-900 mb-2">Danger Zone</h3>
+                                <p className="text-red-700 mb-4 text-sm">Performing a system reset will wipe all database records except admin accounts. This cannot be undone.</p>
+                                <button onClick={handleReset} className="bg-red-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-red-700 shadow-lg shadow-red-200 transition">Factory Reset Database</button>
+                            </div>
+                        </div>
+                    )}
+                    {/* Reusing shared components logic for other tabs if needed */}
+                </DashboardLayout>
             );
         }
 
@@ -391,77 +483,49 @@ function getHtml() {
             const [activeExamId, setActiveExamId] = useState(null);
 
             useEffect(() => { loadExams(); }, []);
-
             const loadExams = async () => {
                 const res = await fetch(\`/api/teacher/exams?teacher_id=\${user.id}\`);
                 setExams(await res.json());
             };
 
             const toggleExam = async (id, currentState) => {
-                await fetch('/api/exam/toggle', {
-                    method: 'POST',
-                    body: JSON.stringify({ id, is_active: !currentState })
-                });
+                await fetch('/api/exam/toggle', { method: 'POST', body: JSON.stringify({ id, is_active: !currentState }) });
                 loadExams();
                 addToast(\`Exam \${!currentState ? 'Enabled' : 'Disabled'}\`);
             };
 
+            const deleteExam = async (id) => {
+                if(!confirm("Are you sure you want to delete this exam and all its results?")) return;
+                const res = await fetch('/api/exam/delete', { method: 'POST', body: JSON.stringify({ id }) });
+                if(res.ok) { addToast("Exam Deleted"); loadExams(); }
+            };
+
             const handleCreate = () => { setEditingExamId(null); setView('create'); }
 
-            if (view === 'create') {
-                return (
-                    <ExamCreator 
-                        user={user} 
-                        examId={editingExamId}
-                        onCancel={() => { setView('list'); setEditingExamId(null); }} 
-                        onFinish={() => { setView('list'); loadExams(); addToast("Exam saved successfully"); }} 
-                        addToast={addToast} 
-                    />
-                );
-            }
-
-            if (view === 'stats') {
-                return (
-                     <DashboardLayout user={user} onLogout={onLogout} title="Analytics" activeTab={activeTab} onTabChange={setActiveTab}
-                        action={<button onClick={() => setView('list')} className="text-gray-500 hover:text-gray-900">Back</button>}>
-                        <ExamStats examId={activeExamId} onBack={() => setView('list')} />
-                    </DashboardLayout>
-                );
-            }
+            if (view === 'create') return <ExamCreator user={user} examId={editingExamId} onCancel={() => { setView('list'); setEditingExamId(null); }} onFinish={() => { setView('list'); loadExams(); addToast("Exam saved"); }} addToast={addToast} />;
+            if (view === 'stats') return <DashboardLayout user={user} onLogout={onLogout} title="Analytics" activeTab={activeTab} onTabChange={setActiveTab} action={<button onClick={() => setView('list')} className="text-gray-500 font-bold">← Back</button>}><ExamStats examId={activeExamId} /></DashboardLayout>;
 
             return (
-                <DashboardLayout 
-                    user={user} 
-                    onLogout={onLogout} 
-                    title={activeTab === 'exams' ? "My Exams" : "Student Roster"} 
-                    activeTab={activeTab} 
-                    onTabChange={setActiveTab}
+                <DashboardLayout user={user} onLogout={onLogout} title={activeTab === 'exams' ? "My Exams" : "Student Roster"} activeTab={activeTab} onTabChange={setActiveTab}
                     action={activeTab === 'exams' && <button onClick={handleCreate} className="bg-indigo-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition flex items-center gap-2"><Icons.Plus /> Create Exam</button>}
                 >
                     {activeTab === 'exams' && (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 anim-enter">
                             {exams.map(exam => (
-                                <div key={exam.id} className={\`rounded-xl shadow-sm border p-6 transition flex flex-col group \${exam.is_active ? 'bg-white border-gray-200 hover:shadow-md' : 'bg-gray-50 border-gray-200 opacity-75'}\`}>
+                                <div key={exam.id} className={\`relative bg-white rounded-xl shadow-sm border p-6 transition flex flex-col group \${exam.is_active ? 'border-gray-200 hover:shadow-md' : 'border-gray-200 opacity-75'}\`}>
                                     <div className="flex justify-between items-start mb-4">
+                                        <span className={\`text-xs font-bold px-2 py-1 rounded uppercase tracking-wide \${exam.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}\`}>{exam.is_active ? 'Active' : 'Closed'}</span>
                                         <div className="flex items-center gap-2">
-                                            <span className={\`text-xs font-bold px-2 py-1 rounded uppercase tracking-wide \${exam.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}\`}>
-                                                {exam.is_active ? 'Active' : 'Closed'}
-                                            </span>
-                                        </div>
-                                        <div className="flex items-center gap-3">
                                             <Toggle checked={!!exam.is_active} onChange={()=>toggleExam(exam.id, exam.is_active)} />
-                                            <button onClick={() => { setEditingExamId(exam.id); setView('create'); }} className="text-gray-400 hover:text-indigo-600"><Icons.Edit/></button>
+                                            <button onClick={() => { setEditingExamId(exam.id); setView('create'); }} className="text-gray-400 hover:text-indigo-600 p-1"><Icons.Edit/></button>
+                                            <button onClick={() => deleteExam(exam.id)} className="text-gray-400 hover:text-red-600 p-1"><Icons.Trash/></button>
                                         </div>
                                     </div>
-                                    <h3 className="text-xl font-bold text-gray-900 mb-2">{exam.title}</h3>
-                                    <p className="text-sm text-gray-500 mb-6 flex-1">Created on {new Date(exam.created_at).toLocaleDateString()}</p>
+                                    <h3 className="text-xl font-bold text-gray-900 mb-2 truncate">{exam.title}</h3>
+                                    <p className="text-sm text-gray-500 mb-6 flex-1">Created: {new Date(exam.created_at).toLocaleDateString()}</p>
                                     <div className="flex gap-3 pt-4 border-t border-gray-100">
-                                        <button onClick={() => {
-                                            if(!exam.is_active) return addToast("Enable exam to share link", 'error');
-                                            navigator.clipboard.writeText(\`\${window.location.origin}/?exam=\${exam.link_id}\`);
-                                            addToast("Link copied to clipboard");
-                                        }} className="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-700 py-2 rounded-lg text-sm font-medium transition">Share</button>
-                                        <button onClick={() => { setActiveExamId(exam.id); setView('stats'); }} className="flex-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-2 rounded-lg text-sm font-medium transition">Stats</button>
+                                        <button onClick={() => { if(!exam.is_active) return addToast("Enable exam to share", 'error'); navigator.clipboard.writeText(\`\${window.location.origin}/?exam=\${exam.link_id}\`); addToast("Link copied!"); }} className="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-700 py-2 rounded-lg text-sm font-bold transition">Share</button>
+                                        <button onClick={() => { setActiveExamId(exam.id); setView('stats'); }} className="flex-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-2 rounded-lg text-sm font-bold transition">Results</button>
                                     </div>
                                 </div>
                             ))}
@@ -472,152 +536,30 @@ function getHtml() {
             );
         }
 
-        // --- STUDENT LIST (Advanced) ---
-        function StudentList({ addToast }) {
-            const [students, setStudents] = useState([]);
-            const [selectedStudent, setSelectedStudent] = useState(null);
-            
-            useEffect(() => { load(); }, []);
-            const load = () => fetch('/api/students/list').then(r=>r.json()).then(setStudents);
-
-            const handleUpdate = async (e) => {
-                e.preventDefault();
-                const res = await fetch('/api/student/update', {
-                    method: 'POST',
-                    body: JSON.stringify({ 
-                        id: selectedStudent.student.id,
-                        name: e.target.name.value,
-                        roll: e.target.roll.value
-                    })
-                });
-                if(res.ok) {
-                    addToast("Student updated");
-                    setSelectedStudent(null);
-                    load();
-                }
-            };
-
-            const viewDetails = async (id) => {
-                const data = await fetch(\`/api/student/details?id=\${id}\`).then(r=>r.json());
-                setSelectedStudent(data);
-            };
-
-            return (
-                <div className="anim-enter">
-                    {selectedStudent ? (
-                         <div className="bg-white rounded-xl shadow-lg border p-8 max-w-3xl mx-auto">
-                            <div className="flex justify-between items-start mb-6 border-b pb-4">
-                                <h2 className="text-2xl font-bold text-gray-900">Student Profile</h2>
-                                <button onClick={()=>setSelectedStudent(null)} className="text-gray-500 hover:text-gray-900">Close</button>
-                            </div>
-                            
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
-                                <div className="md:col-span-1 bg-gray-50 p-6 rounded-xl border">
-                                    <form onSubmit={handleUpdate} className="space-y-4">
-                                        <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase">Full Name</label>
-                                            <input name="name" defaultValue={selectedStudent.student.name} className="w-full border p-2 rounded bg-white" />
-                                        </div>
-                                        <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase">Roll No</label>
-                                            <input name="roll" defaultValue={selectedStudent.student.roll} className="w-full border p-2 rounded bg-white" />
-                                        </div>
-                                        <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase">School ID</label>
-                                            <div className="p-2 bg-gray-200 rounded text-gray-600 text-sm font-mono">{selectedStudent.student.school_id}</div>
-                                        </div>
-                                        <button className="w-full bg-indigo-600 text-white py-2 rounded font-bold hover:bg-indigo-700">Save Changes</button>
-                                    </form>
-                                </div>
-                                <div className="md:col-span-2">
-                                    <h3 className="font-bold text-gray-800 mb-4">Exam History</h3>
-                                    <div className="space-y-3 max-h-64 overflow-y-auto">
-                                        {selectedStudent.history.map(h => (
-                                            <div key={h.id} className="flex justify-between items-center p-3 bg-white border rounded-lg shadow-sm">
-                                                <div>
-                                                    <div className="font-bold text-sm">{h.title}</div>
-                                                    <div className="text-xs text-gray-500">{new Date(h.timestamp).toLocaleDateString()}</div>
-                                                </div>
-                                                <div className={\`font-bold \${(h.score/h.total) > 0.7 ? 'text-green-600' : 'text-orange-500'}\`}>
-                                                    {h.score}/{h.total}
-                                                </div>
-                                            </div>
-                                        ))}
-                                        {selectedStudent.history.length === 0 && <p className="text-gray-400 italic">No exams taken yet.</p>}
-                                    </div>
-                                </div>
-                            </div>
-                         </div>
-                    ) : (
-                        <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-                            <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
-                                    <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Student Name</th>
-                                        <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">ID</th>
-                                        <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Roll</th>
-                                        <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Progress</th>
-                                        <th className="px-6 py-3"></th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-200">
-                                    {students.map(s => (
-                                        <tr key={s.id} className="hover:bg-gray-50 group">
-                                            <td className="px-6 py-4 font-medium text-gray-900">{s.name}</td>
-                                            <td className="px-6 py-4 text-gray-500 font-mono text-xs">{s.school_id}</td>
-                                            <td className="px-6 py-4 text-gray-500">{s.roll}</td>
-                                            <td className="px-6 py-4">
-                                                <div className="flex items-center gap-2">
-                                                    <div className="w-24 bg-gray-200 rounded-full h-2">
-                                                        <div className="bg-green-500 h-2 rounded-full" style={{width: \`\${s.avg_score || 0}%\`}}></div>
-                                                    </div>
-                                                    <span className="text-xs font-bold text-gray-600">{Math.round(s.avg_score || 0)}%</span>
-                                                </div>
-                                                <div className="text-xs text-gray-400 mt-1">{s.exams_count} Exams</div>
-                                            </td>
-                                            <td className="px-6 py-4 text-right">
-                                                <button onClick={()=>viewDetails(s.id)} className="text-indigo-600 font-medium text-sm hover:underline opacity-0 group-hover:opacity-100 transition">View Profile</button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-                </div>
-            );
-        }
-
         // --- EXAM CREATOR ---
         function ExamCreator({ user, examId, onCancel, onFinish, addToast }) {
             const [step, setStep] = useState('settings');
-            const [settings, setSettings] = useState({
-                title: '', timerMode: 'question', timerValue: 30, studentFields: { name: true, roll: true, school_id: true },
-                allowBack: false, allowRetakes: false, showResult: true, showCorrect: false
-            });
+            const [settings, setSettings] = useState({ title: '', timerMode: 'question', timerValue: 30, studentFields: { name: true, roll: true, school_id: true }, allowBack: false, allowRetakes: false, showResult: true, showCorrect: false });
             const [questions, setQuestions] = useState([]);
             const [currQ, setCurrQ] = useState({ text: '', choices: [{id:1, text:'', isCorrect:false}, {id:2, text:'', isCorrect:false}], image: null });
 
-            // ... (Load Logic same as before, ensuring we load new settings fields)
             useEffect(() => {
-                if(examId) {
-                    fetch(\`/api/teacher/exam-details?id=\${examId}\`).then(r=>r.json()).then(data => {
-                        const s = JSON.parse(data.exam.settings || '{}');
-                        setSettings({ ...settings, ...s, title: data.exam.title });
-                        setQuestions(data.questions.map(q => ({...q, choices: JSON.parse(q.choices)})));
-                    });
-                }
+                if(examId) fetch(\`/api/teacher/exam-details?id=\${examId}\`).then(r=>r.json()).then(data => {
+                    const s = JSON.parse(data.exam.settings || '{}');
+                    setSettings({ ...settings, ...s, title: data.exam.title });
+                    setQuestions(data.questions.map(q => ({...q, choices: JSON.parse(q.choices)})));
+                });
             }, [examId]);
 
             const saveQ = () => {
-                if(!currQ.text || !currQ.choices.some(c=>c.isCorrect)) return addToast("Invalid Question", 'error');
+                if(!currQ.text || !currQ.choices.some(c=>c.isCorrect)) return addToast("Question incomplete", 'error');
                 setQuestions([...questions, { ...currQ, tempId: Date.now() }]);
                 setCurrQ({ text: '', choices: [{id:Date.now(), text:'', isCorrect:false}, {id:Date.now()+1, text:'', isCorrect:false}], image: null });
             };
 
             const publish = async () => {
-                if(!settings.title) return addToast("Title missing", 'error');
-                if(questions.length===0) return addToast("No questions", 'error');
+                if(!settings.title) return addToast("Title required", 'error');
+                if(questions.length===0) return addToast("Add questions", 'error');
                 const res = await fetch('/api/exam/save', { method: 'POST', body: JSON.stringify({ id: examId, title: settings.title, teacher_id: user.id, settings }) });
                 const data = await res.json();
                 for(let q of questions) {
@@ -626,314 +568,165 @@ function getHtml() {
                     fd.append('text', q.text);
                     fd.append('choices', JSON.stringify(q.choices));
                     if(q.image instanceof File) fd.append('image', q.image);
+                    else if(q.image_key) fd.append('existing_image_key', q.image_key); // Maintain existing
                     await fetch('/api/question/add', { method: 'POST', body: fd });
                 }
                 onFinish();
             };
 
             return (
-                <div className="flex h-[calc(100vh-80px)] bg-white rounded-xl shadow overflow-hidden">
-                    <div className="w-1/3 bg-gray-50 border-r p-6 overflow-y-auto">
-                        <h3 className="font-bold text-gray-900 mb-6">Exam Settings</h3>
-                        <div className="space-y-6">
-                            <div><label className="text-sm font-bold block mb-1">Title</label><input value={settings.title} onChange={e=>setSettings({...settings, title:e.target.value})} className="w-full border p-2 rounded" /></div>
-                            
-                            <div className="bg-white p-4 rounded border space-y-3">
-                                <label className="flex items-center justify-between"><span className="text-sm">Allow Back Nav</span><input type="checkbox" checked={settings.allowBack} onChange={e=>setSettings({...settings, allowBack:e.target.checked})} /></label>
-                                <label className="flex items-center justify-between"><span className="text-sm">Allow Retakes</span><input type="checkbox" checked={settings.allowRetakes} onChange={e=>setSettings({...settings, allowRetakes:e.target.checked})} /></label>
-                                <label className="flex items-center justify-between"><span className="text-sm">Show Score</span><input type="checkbox" checked={settings.showResult} onChange={e=>setSettings({...settings, showResult:e.target.checked})} /></label>
-                                <label className="flex items-center justify-between"><span className="text-sm">Show Correct Answers</span><input type="checkbox" checked={settings.showCorrect} onChange={e=>setSettings({...settings, showCorrect:e.target.checked})} /></label>
+                <div className="flex h-screen bg-gray-100 font-sans">
+                    <div className="w-80 bg-white border-r flex flex-col p-6 shadow-lg z-10">
+                        <h2 className="font-bold text-xl mb-6 flex items-center gap-2"><button onClick={onCancel} className="text-gray-400 hover:text-black">←</button> {examId ? 'Edit Exam' : 'New Exam'}</h2>
+                        <div className="space-y-6 flex-1 overflow-y-auto">
+                            <div><label className="text-xs font-bold text-gray-500 uppercase">Title</label><input value={settings.title} onChange={e=>setSettings({...settings, title:e.target.value})} className="w-full border-b-2 border-gray-200 p-2 font-bold outline-none focus:border-indigo-600 transition bg-transparent" placeholder="Exam Name" /></div>
+                            <div className="space-y-3">
+                                <label className="text-xs font-bold text-gray-500 uppercase">Settings</label>
+                                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"><span className="text-sm font-medium">Back Button</span><Toggle checked={settings.allowBack} onChange={v=>setSettings({...settings, allowBack:v})} /></div>
+                                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"><span className="text-sm font-medium">Retakes</span><Toggle checked={settings.allowRetakes} onChange={v=>setSettings({...settings, allowRetakes:v})} /></div>
+                                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"><span className="text-sm font-medium">Show Score</span><Toggle checked={settings.showResult} onChange={v=>setSettings({...settings, showResult:v})} /></div>
+                                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"><span className="text-sm font-medium">Show Answers</span><Toggle checked={settings.showCorrect} onChange={v=>setSettings({...settings, showCorrect:v})} /></div>
                             </div>
-
                             <div>
-                                <h4 className="font-bold text-sm mb-2">Timer</h4>
-                                <select value={settings.timerMode} onChange={e=>setSettings({...settings, timerMode:e.target.value})} className="w-full border p-2 rounded mb-2"><option value="question">Per Question</option><option value="total">Total Exam</option></select>
-                                <input type="number" value={settings.timerValue} onChange={e=>setSettings({...settings, timerValue:e.target.value})} className="w-full border p-2 rounded" placeholder="Duration" />
-                            </div>
-
-                            <button onClick={publish} className="w-full bg-indigo-600 text-white py-3 rounded font-bold">Publish Exam</button>
-                            <button onClick={onCancel} className="w-full text-gray-500 py-2">Cancel</button>
-                        </div>
-                    </div>
-                    
-                    <div className="flex-1 p-8 overflow-y-auto">
-                         <h3 className="font-bold text-xl mb-4">Questions ({questions.length})</h3>
-                         <div className="mb-6 bg-indigo-50 p-6 rounded-xl border border-indigo-100">
-                            <textarea value={currQ.text} onChange={e=>setCurrQ({...currQ, text:e.target.value})} className="w-full p-3 border rounded mb-3" placeholder="Question Text..." />
-                            {currQ.choices.map((c, i) => (
-                                <div key={c.id} className="flex gap-2 mb-2">
-                                    <input type="radio" name="c" checked={c.isCorrect} onChange={()=>setCurrQ({...currQ, choices: currQ.choices.map(x=>({...x, isCorrect:x.id===c.id}))})} />
-                                    <input value={c.text} onChange={e=>setCurrQ({...currQ, choices: currQ.choices.map(x=>x.id===c.id?{...x, text:e.target.value}:x)})} className="flex-1 border p-2 rounded" placeholder="Option" />
-                                </div>
-                            ))}
-                            <button onClick={()=>setCurrQ({...currQ, choices: [...currQ.choices, {id:Date.now(), text:'', isCorrect:false}]})} className="text-xs text-blue-600 font-bold mb-4">+ Add Option</button>
-                            <button onClick={saveQ} className="bg-indigo-600 text-white px-4 py-2 rounded text-sm font-bold">Add Question</button>
-                         </div>
-                         
-                         <div className="space-y-2">
-                            {questions.map((q, i) => (
-                                <div key={i} className="p-3 bg-white border rounded flex justify-between">
-                                    <span>{i+1}. {q.text}</span>
-                                    <button onClick={()=>setQuestions(questions.filter((_, idx)=>idx!==i))} className="text-red-500">Delete</button>
-                                </div>
-                            ))}
-                         </div>
-                    </div>
-                </div>
-            );
-        }
-        
-        // --- STUDENT APP (Advanced Flow) ---
-        function StudentApp({ linkId }) {
-            const [mode, setMode] = useState('identify'); // identify, register, lobby, game, summary, review
-            const [student, setStudent] = useState({ name: '', school_id: '', roll: '' });
-            const [exam, setExam] = useState(null);
-            const [history, setHistory] = useState(null); // Previous attempts of this student
-            
-            // Game State
-            const [qIdx, setQIdx] = useState(0);
-            const [score, setScore] = useState(0);
-            const [answers, setAnswers] = useState({}); // { qId: choiceId }
-            const [qTime, setQTime] = useState(0);
-            const [totalTime, setTotalTime] = useState(0);
-
-            useEffect(() => {
-                fetch(\`/api/exam/get?link_id=\${linkId}\`).then(r => r.ok ? r.json() : null).then(data => {
-                    if(!data) return alert("Invalid or Closed Link");
-                    if(!data.exam.is_active) return alert("This exam is currently closed.");
-                    setExam(data);
-                });
-            }, [linkId]);
-
-            // Timer Tick
-            useEffect(() => {
-                if(mode !== 'game' || !exam) return;
-                const settings = JSON.parse(exam.exam.settings || '{}');
-                const interval = setInterval(() => {
-                    if(settings.timerMode === 'question') {
-                        if(qTime > 0) setQTime(t => t - 1);
-                        else nextQ(); 
-                    } else if(settings.timerMode === 'total') {
-                        if(totalTime > 0) setTotalTime(t => t - 1);
-                        else finish(); 
-                    }
-                }, 1000);
-                return () => clearInterval(interval);
-            }, [mode, qTime, totalTime, exam]);
-
-            const checkIdentity = async (e) => {
-                e.preventDefault();
-                const res = await fetch('/api/student/identify', {
-                    method: 'POST',
-                    body: JSON.stringify({ school_id: student.school_id })
-                }).then(r=>r.json());
-
-                if(res.found) {
-                    setStudent({ ...res.student, ...student }); // Keep entered ID, fill rest
-                    setHistory(res.stats); // { total_exams, avg_score }
-                    setMode('lobby');
-                } else {
-                    setMode('register');
-                }
-            };
-
-            const startGame = async () => {
-                // Check retakes
-                const settings = JSON.parse(exam.exam.settings || '{}');
-                if(!settings.allowRetakes) {
-                    const check = await fetch('/api/student/check', { method: 'POST', body: JSON.stringify({ exam_id: exam.exam.id, school_id: student.school_id }) }).then(r=>r.json());
-                    if(!check.canTake) return alert("You have already taken this exam.");
-                }
-                
-                setMode('game');
-                if(settings.timerMode === 'question') setQTime(settings.timerValue || 30);
-                if(settings.timerMode === 'total') setTotalTime((settings.timerValue || 10) * 60);
-            };
-
-            const handleAnswer = (choiceId) => {
-                const q = exam.questions[qIdx];
-                setAnswers(prev => ({ ...prev, [q.id]: choiceId }));
-                const settings = JSON.parse(exam.exam.settings || '{}');
-                if(settings.timerMode === 'question') setTimeout(nextQ, 300);
-            };
-
-            const nextQ = () => {
-                if(qIdx < exam.questions.length - 1) {
-                    setQIdx(prev => prev + 1);
-                    const settings = JSON.parse(exam.exam.settings || '{}');
-                    if(settings.timerMode === 'question') setQTime(settings.timerValue || 30);
-                } else {
-                    finish();
-                }
-            };
-
-            const finish = async () => {
-                let finalScore = 0;
-                const detailed = exam.questions.map(q => {
-                    const sel = answers[q.id];
-                    const choices = JSON.parse(q.choices);
-                    const correct = choices.find(c => c.isCorrect)?.id;
-                    if(sel === correct) finalScore++;
-                    return { qId: q.id, selected: sel, correct, isCorrect: sel===correct };
-                });
-                setScore(finalScore);
-                setMode('summary');
-                
-                // Confetti if score > 70%
-                if((finalScore/exam.questions.length) > 0.7) confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
-
-                await fetch('/api/submit', {
-                    method: 'POST',
-                    body: JSON.stringify({ link_id: linkId, student, score: finalScore, total: exam.questions.length, answers: detailed })
-                });
-            };
-
-            if(!exam) return <div className="min-h-screen bg-indigo-900 flex items-center justify-center text-white">Loading Exam...</div>;
-            const settings = JSON.parse(exam.exam.settings || '{}');
-
-            // --- VIEW: IDENTIFY ---
-            if(mode === 'identify') return (
-                <div className="min-h-screen bg-gradient-to-br from-indigo-900 to-purple-800 flex items-center justify-center p-4">
-                    <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md text-center anim-pop">
-                        <div className="mb-6"><div className="w-16 h-16 bg-purple-100 text-purple-600 rounded-full mx-auto flex items-center justify-center"><Icons.User /></div></div>
-                        <h1 className="text-2xl font-black text-gray-800 mb-2">Student Login</h1>
-                        <p className="text-gray-500 mb-6">Enter your School ID to continue</p>
-                        <form onSubmit={checkIdentity}>
-                            <input required value={student.school_id} onChange={e=>setStudent({...student, school_id:e.target.value})} className="w-full bg-gray-100 rounded-xl px-4 py-3 font-bold text-center text-xl text-gray-800 outline-none focus:ring-2 ring-purple-500 mb-4" placeholder="ID Number" />
-                            <button className="w-full bg-purple-600 text-white font-black py-4 rounded-xl hover:bg-purple-700 transition">NEXT →</button>
-                        </form>
-                    </div>
-                </div>
-            );
-
-            // --- VIEW: REGISTER (If New) ---
-            if(mode === 'register') return (
-                <div className="min-h-screen bg-indigo-900 flex items-center justify-center p-4">
-                    <div className="bg-white p-8 rounded-3xl w-full max-w-md anim-pop">
-                        <h2 className="text-2xl font-bold mb-4">Hello! 👋</h2>
-                        <p className="text-gray-500 mb-6">It looks like you're new here. Please complete your profile.</p>
-                        <form onSubmit={(e)=>{e.preventDefault(); setMode('lobby');}} className="space-y-4">
-                            <input required value={student.name} onChange={e=>setStudent({...student, name:e.target.value})} className="w-full bg-gray-100 p-3 rounded-lg font-bold" placeholder="Full Name" />
-                            <input required value={student.roll} onChange={e=>setStudent({...student, roll:e.target.value})} className="w-full bg-gray-100 p-3 rounded-lg font-bold" placeholder="Roll Number" />
-                            <button className="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg">Save & Continue</button>
-                        </form>
-                    </div>
-                </div>
-            );
-
-            // --- VIEW: LOBBY ---
-            if(mode === 'lobby') return (
-                <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-                    <div className="bg-white p-8 rounded-3xl shadow-lg w-full max-w-md text-center anim-pop relative overflow-hidden">
-                        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-green-400 to-blue-500"></div>
-                        <h2 className="text-3xl font-black text-gray-900 mb-1">Welcome, {student.name.split(' ')[0]}!</h2>
-                        <p className="text-gray-400 mb-8 font-medium">Ready to crush this exam?</p>
-
-                        {/* Student Progress Mini-Dash */}
-                        {history && (
-                            <div className="grid grid-cols-2 gap-4 mb-8">
-                                <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
-                                    <div className="text-2xl font-black text-indigo-600">{history.total_exams}</div>
-                                    <div className="text-xs font-bold text-gray-500 uppercase">Exams Taken</div>
-                                </div>
-                                <div className="bg-green-50 p-4 rounded-2xl border border-green-100">
-                                    <div className="text-2xl font-black text-green-600">{Math.round(history.avg_score || 0)}%</div>
-                                    <div className="text-xs font-bold text-gray-500 uppercase">Avg Score</div>
+                                <label className="text-xs font-bold text-gray-500 uppercase">Timer</label>
+                                <div className="flex gap-2 mt-2">
+                                    <select value={settings.timerMode} onChange={e=>setSettings({...settings, timerMode:e.target.value})} className="border p-2 rounded text-sm"><option value="question">Per Q</option><option value="total">Total</option></select>
+                                    <input type="number" value={settings.timerValue} onChange={e=>setSettings({...settings, timerValue:e.target.value})} className="border p-2 rounded w-20 text-sm" />
                                 </div>
                             </div>
-                        )}
-
-                        <div className="bg-gray-900 text-white p-6 rounded-2xl mb-6">
-                            <div className="text-gray-400 text-xs font-bold uppercase mb-1">Current Exam</div>
-                            <div className="text-xl font-bold">{exam.exam.title}</div>
-                            <div className="text-sm mt-2 opacity-75">{exam.questions.length} Questions • {settings.timerMode === 'question' ? 'Fast Paced' : 'Standard Timer'}</div>
                         </div>
-
-                        <button onClick={startGame} className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-black text-xl py-4 rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition">START EXAM 🚀</button>
+                        <button onClick={publish} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition mt-4">Publish Exam</button>
                     </div>
-                </div>
-            );
-
-            // --- VIEW: GAME ---
-            if(mode === 'game') return (
-                <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-4">
-                     <div className="w-full max-w-4xl flex justify-between items-center mb-8 bg-slate-800 p-4 rounded-2xl border border-slate-700">
-                        <div><span className="text-gray-400 text-xs font-bold uppercase">Question</span><div className="text-2xl font-black">{qIdx+1}/{exam.questions.length}</div></div>
-                        <div className={\`text-3xl font-mono font-bold \${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}\`}>
-                            {settings.timerMode === 'question' ? qTime : Math.floor(totalTime/60) + ':' + (totalTime%60).toString().padStart(2,'0')}
-                        </div>
-                    </div>
-                    <div className="w-full max-w-3xl flex-1 flex flex-col justify-center text-center">
-                        <div className="bg-white text-gray-900 rounded-3xl p-8 mb-6 shadow-2xl">
-                             {exam.questions[qIdx].image_key && <img src={\`/img/\${exam.questions[qIdx].image_key}\`} className="max-h-60 mx-auto mb-6 rounded-xl object-contain" />}
-                             <h2 className="text-2xl md:text-3xl font-bold">{exam.questions[qIdx].text}</h2>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {JSON.parse(exam.questions[qIdx].choices).map((c, i) => (
-                                <button key={c.id} onClick={() => handleAnswer(c.id)} className={\`bg-gray-800 hover:bg-gray-700 p-6 rounded-2xl border border-gray-700 flex items-center gap-4 text-left transition transform hover:scale-105 \${answers[exam.questions[qIdx].id]===c.id?'ring-2 ring-indigo-500 bg-indigo-900':''}\`}>
-                                    <div className="bg-gray-700 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm">{String.fromCharCode(65+i)}</div>
-                                    <span className="text-lg font-bold">{c.text}</span>
-                                </button>
-                            ))}
-                        </div>
-                        <div className="flex justify-between mt-8">
-                            {settings.allowBack && <button onClick={()=>setQIdx(Math.max(0, qIdx-1))} disabled={qIdx===0} className="px-6 py-3 rounded-xl bg-gray-700 font-bold disabled:opacity-50">Back</button>}
-                            {settings.timerMode === 'total' && <button onClick={qIdx===exam.questions.length-1?finish:()=>setQIdx(qIdx+1)} className="px-8 py-3 rounded-xl bg-white text-gray-900 font-bold">{qIdx===exam.questions.length-1?'Submit':'Next'}</button>}
-                        </div>
-                    </div>
-                </div>
-            );
-
-            // --- VIEW: SUMMARY & REVIEW ---
-            if(mode === 'summary' || mode === 'review') {
-                const perc = score / exam.questions.length;
-                return (
-                    <div className="min-h-screen bg-gray-900 overflow-y-auto p-4 flex flex-col items-center">
-                        <div className="bg-gray-800 p-8 rounded-3xl shadow-2xl text-center max-w-2xl w-full border border-gray-700 mb-8 mt-10">
-                            <h2 className="text-3xl font-bold text-white mb-2">Exam Completed!</h2>
-                            <div className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-blue-500 my-6">{score} / {exam.questions.length}</div>
+                    <div className="flex-1 p-10 overflow-y-auto">
+                        <div className="max-w-3xl mx-auto">
+                            <h3 className="font-bold text-2xl mb-6 text-gray-800">Questions ({questions.length})</h3>
                             
-                            {settings.showCorrect && mode !== 'review' && (
-                                <button onClick={()=>setMode('review')} className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-8 rounded-xl transition mb-4">Review Answers</button>
-                            )}
-                            <button onClick={()=>window.location.href='/'} className="block w-full bg-indigo-600 text-white font-bold py-4 rounded-xl hover:bg-indigo-500 transition">Return Home</button>
-                        </div>
+                            <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200 mb-8 anim-enter relative">
+                                <textarea value={currQ.text} onChange={e=>setCurrQ({...currQ, text:e.target.value})} className="w-full text-lg font-medium outline-none placeholder-gray-300 mb-4 resize-none" rows="2" placeholder="Type your question here..." autoFocus />
+                                
+                                <div className="mb-6">
+                                    <label className="flex items-center gap-2 text-sm font-bold text-indigo-600 cursor-pointer bg-indigo-50 w-fit px-3 py-1.5 rounded-lg hover:bg-indigo-100 transition">
+                                        <Icons.Image /> {currQ.image ? 'Image Selected' : 'Add Image'}
+                                        <input type="file" className="hidden" onChange={e=>setCurrQ({...currQ, image:e.target.files[0]})} />
+                                    </label>
+                                    {currQ.image && <div className="mt-2 text-xs text-gray-500">Selected: {currQ.image.name}</div>}
+                                </div>
 
-                        {mode === 'review' && (
-                            <div className="w-full max-w-2xl space-y-4 pb-12 anim-enter">
-                                <h3 className="text-gray-400 font-bold uppercase tracking-widest mb-4">Detailed Review</h3>
-                                {exam.questions.map((q, i) => {
-                                    const userAnsId = answers[q.id];
-                                    const choices = JSON.parse(q.choices);
-                                    const correctId = choices.find(c=>c.isCorrect).id;
-                                    const isCorrect = userAnsId === correctId;
-                                    
-                                    return (
-                                        <div key={q.id} className={\`bg-white p-6 rounded-2xl border-l-8 \${isCorrect ? 'border-green-500' : 'border-red-500'}\`}>
-                                            <div className="font-bold text-lg mb-4 text-gray-800"><span className="text-gray-400 mr-2">{i+1}.</span>{q.text}</div>
-                                            <div className="space-y-2">
-                                                {choices.map(c => (
-                                                    <div key={c.id} className={\`p-3 rounded-lg flex justify-between items-center \${c.id === correctId ? 'bg-green-100 text-green-800 font-bold' : (c.id === userAnsId ? 'bg-red-100 text-red-800' : 'bg-gray-50 text-gray-500')}\`}>
-                                                        <span>{c.text}</span>
-                                                        {c.id === correctId && <span className="text-xs uppercase">Correct</span>}
-                                                        {c.id === userAnsId && c.id !== correctId && <span className="text-xs uppercase">Your Answer</span>}
-                                                    </div>
-                                                ))}
+                                <div className="space-y-3">
+                                    {currQ.choices.map((c, i) => (
+                                        <div key={c.id} className="flex items-center gap-3">
+                                            <div onClick={()=>setCurrQ({...currQ, choices: currQ.choices.map(x=>({...x, isCorrect:x.id===c.id}))})} className={\`w-6 h-6 rounded-full border-2 cursor-pointer flex items-center justify-center \${c.isCorrect ? 'border-green-500 bg-green-500' : 'border-gray-300'}\`}>{c.isCorrect && <span className="text-white text-xs">✓</span>}</div>
+                                            <input value={c.text} onChange={e=>setCurrQ({...currQ, choices: currQ.choices.map(x=>x.id===c.id?{...x, text:e.target.value}:x)})} className="flex-1 border-b border-gray-200 p-2 outline-none focus:border-indigo-500 transition" placeholder={\`Option \${i+1}\`} />
+                                            {currQ.choices.length > 2 && <button onClick={()=>setCurrQ({...currQ, choices: currQ.choices.filter(x=>x.id!==c.id)})} className="text-gray-300 hover:text-red-500">×</button>}
+                                        </div>
+                                    ))}
+                                    <button onClick={()=>setCurrQ({...currQ, choices: [...currQ.choices, {id:Date.now(), text:'', isCorrect:false}]})} className="text-sm font-bold text-indigo-600 mt-2">+ Add Option</button>
+                                </div>
+                                <div className="mt-6 flex justify-end">
+                                    <button onClick={saveQ} className="bg-gray-900 text-white px-6 py-2 rounded-lg font-bold hover:bg-black">Add to List</button>
+                                </div>
+                            </div>
+
+                            <div className="space-y-3">
+                                {questions.map((q, i) => (
+                                    <div key={i} className="bg-white p-4 rounded-xl border border-gray-200 flex justify-between items-center group hover:shadow-sm transition">
+                                        <div className="flex items-center gap-4">
+                                            <span className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center font-bold text-sm text-gray-500">{i+1}</span>
+                                            <div>
+                                                <p className="font-medium text-gray-900 line-clamp-1">{q.text}</p>
+                                                <p className="text-xs text-gray-400">{q.choices.length} options • {q.image || q.image_key ? 'Has Image' : 'Text only'}</p>
                                             </div>
                                         </div>
-                                    )
-                                })}
+                                        <button onClick={()=>setQuestions(questions.filter((_, idx)=>idx!==i))} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"><Icons.Trash /></button>
+                                    </div>
+                                ))}
                             </div>
-                        )}
+                        </div>
                     </div>
-                );
-            }
+                </div>
+            );
         }
 
+        // --- PUBLIC FACING (Student Hub & Landing) ---
+        function Landing({ onTeacher, onStudent }) {
+            return (
+                <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6 text-center">
+                    <div className="mb-8 p-4 bg-white rounded-full shadow-xl anim-pop"><div className="text-indigo-600"><Icons.Logo /></div></div>
+                    <h1 className="text-5xl font-display font-black text-slate-900 mb-4 tracking-tight">ExamMaster.</h1>
+                    <p className="text-gray-500 text-lg mb-10 max-w-md">The masterclass platform for testing, learning, and tracking progress.</p>
+                    
+                    <div className="grid gap-4 w-full max-w-sm">
+                        <button onClick={onStudent} className="group relative w-full bg-indigo-600 text-white p-5 rounded-2xl font-bold text-lg shadow-lg hover:bg-indigo-700 transition transform hover:-translate-y-1">
+                            <span className="flex items-center justify-center gap-3">Student Hub <span className="opacity-70 group-hover:translate-x-1 transition">→</span></span>
+                        </button>
+                        <button onClick={onTeacher} className="w-full bg-white text-slate-700 p-5 rounded-2xl font-bold text-lg shadow-sm border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition">
+                            Teacher Access
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        function StudentPortal({ onBack }) {
+            const [id, setId] = useState('');
+            const [data, setData] = useState(null);
+            
+            const fetchHistory = async (e) => {
+                e.preventDefault();
+                const res = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: id }) }).then(r=>r.json());
+                if(res.found) setData(res);
+                else alert("Student ID not found");
+            };
+
+            if(data) return (
+                <div className="min-h-screen bg-slate-50 p-6">
+                    <div className="max-w-2xl mx-auto anim-enter">
+                        <button onClick={()=>setData(null)} className="text-slate-500 font-bold mb-6 hover:text-slate-800">← Back</button>
+                        <div className="bg-white p-8 rounded-3xl shadow-xl mb-6">
+                            <h1 className="text-3xl font-display font-bold text-slate-900 mb-1">Hi, {data.student.name}</h1>
+                            <p className="text-slate-500">Student ID: {data.student.school_id}</p>
+                        </div>
+                        <div className="space-y-4">
+                            <h3 className="font-bold text-slate-400 uppercase text-xs tracking-wider ml-2">Recent Activity</h3>
+                            {data.history.map(h => (
+                                <div key={h.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex justify-between items-center">
+                                    <div>
+                                        <h4 className="font-bold text-lg text-slate-800">{h.title}</h4>
+                                        <p className="text-xs text-slate-400">{new Date(h.timestamp).toLocaleDateString()}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className={\`text-2xl font-black \${(h.score/h.total)>0.7 ? 'text-green-500' : 'text-orange-500'}\`}>{h.score}/{h.total}</div>
+                                        <div className="text-xs font-bold text-slate-300 uppercase">Score</div>
+                                    </div>
+                                </div>
+                            ))}
+                            {data.history.length === 0 && <div className="text-center py-10 text-slate-400">No exams taken yet.</div>}
+                        </div>
+                    </div>
+                </div>
+            );
+
+            return (
+                <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6">
+                    <div className="bg-white p-10 rounded-3xl shadow-2xl w-full max-w-md text-center relative anim-pop">
+                        <button onClick={onBack} className="absolute top-6 left-6 text-gray-400 hover:text-gray-600">✕</button>
+                        <h2 className="text-3xl font-display font-bold text-slate-900 mb-2">Student Hub</h2>
+                        <p className="text-slate-500 mb-8">Enter your School ID to view your progress.</p>
+                        <form onSubmit={fetchHistory}>
+                            <input value={id} onChange={e=>setId(e.target.value)} className="w-full bg-slate-100 p-4 rounded-xl font-bold text-center text-xl mb-4 outline-none focus:ring-2 focus:ring-indigo-500" placeholder="e.g. ST-2024-001" autoFocus />
+                            <button className="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl hover:bg-indigo-700 transition">Check Progress</button>
+                        </form>
+                    </div>
+                </div>
+            );
+        }
+
+        // --- APP ROOT & ROUTING ---
         function App() {
             const [status, setStatus] = useState(null);
             const [user, setUser] = useState(null);
             const [toasts, setToasts] = useState([]);
+            const [route, setRoute] = useState('landing'); // landing, teacher-login, student-portal
             const urlParams = new URLSearchParams(window.location.search);
             const linkId = urlParams.get('exam');
 
@@ -947,44 +740,65 @@ function getHtml() {
                 if(!linkId) fetch('/api/system/status').then(r=>r.json()).then(setStatus);
             }, []);
 
-            if(linkId) return <StudentApp linkId={linkId} />;
-            if(!status) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading ExamMaster...</div>;
-            
-            return (
-                <>
-                    {!status.hasAdmin && <Setup onComplete={() => setStatus({hasAdmin:true})} addToast={addToast} />}
-                    {status.hasAdmin && !user && <Login onLogin={setUser} addToast={addToast} />}
-                    {user && user.role === 'super_admin' && <AdminView user={user} onLogout={()=>setUser(null)} addToast={addToast} />}
-                    {user && user.role === 'teacher' && <TeacherView user={user} onLogout={()=>setUser(null)} addToast={addToast} />}
-                    <ToastContainer toasts={toasts} />
-                </>
-            );
+            if(linkId) return <StudentApp linkId={linkId} />; // Direct Exam Link
+            if(!status) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading...</div>;
+
+            if(!status.hasAdmin) return <><Setup onComplete={() => setStatus({hasAdmin:true})} addToast={addToast} /><ToastContainer toasts={toasts} /></>;
+
+            // Main Routing
+            if(user) {
+                if(user.role === 'super_admin') return <><AdminView user={user} onLogout={()=>setUser(null)} addToast={addToast} /><ToastContainer toasts={toasts} /></>;
+                return <><TeacherView user={user} onLogout={()=>setUser(null)} addToast={addToast} /><ToastContainer toasts={toasts} /></>;
+            }
+
+            if(route === 'student-portal') return <StudentPortal onBack={()=>setRoute('landing')} />;
+            if(route === 'teacher-login') return <><Login onLogin={setUser} addToast={addToast} onBack={()=>setRoute('landing')} /><ToastContainer toasts={toasts} /></>;
+
+            return <Landing onTeacher={()=>setRoute('teacher-login')} onStudent={()=>setRoute('student-portal')} />;
         }
 
-        // --- AUTH COMPS (Reused from previous) ---
-        function Setup({ onComplete, addToast }) { /* ... same as before ... */ 
+        // --- REUSED COMPONENTS ---
+        function Setup({ onComplete, addToast }) { 
              const handle = async (e) => { e.preventDefault(); const init = await fetch('/api/system/init', { method: 'POST' }); if(!init.ok) return addToast("Init Failed", 'error'); const res = await fetch('/api/auth/setup-admin', { method: 'POST', body: JSON.stringify({ name: e.target.name.value, username: e.target.username.value, password: e.target.password.value }) }); if(res.ok) onComplete(); else addToast("Failed", 'error'); };
-             return (<div className="min-h-screen bg-slate-900 flex items-center justify-center"><form onSubmit={handle} className="bg-white p-8 rounded-2xl"><h2 className="font-bold text-xl mb-4">Install System</h2><input name="name" placeholder="Org Name" className="block w-full border p-2 mb-2" /><input name="username" placeholder="Admin User" className="block w-full border p-2 mb-2" /><input name="password" type="password" placeholder="Pass" className="block w-full border p-2 mb-4" /><button className="bg-blue-600 text-white px-4 py-2 rounded">Install</button></form></div>);
+             return (<div className="min-h-screen bg-slate-900 flex items-center justify-center"><form onSubmit={handle} className="bg-white p-8 rounded-2xl w-96"><h2 className="font-bold text-xl mb-4 text-slate-800">Install System</h2><input name="name" placeholder="Org Name" className="block w-full border p-2 mb-2 rounded" /><input name="username" placeholder="Admin User" className="block w-full border p-2 mb-2 rounded" /><input name="password" type="password" placeholder="Pass" className="block w-full border p-2 mb-4 rounded" /><button className="w-full bg-blue-600 text-white px-4 py-2 rounded font-bold">Install</button></form></div>);
         }
-        function Login({ onLogin, addToast }) { /* ... same as before ... */
+        function Login({ onLogin, addToast, onBack }) { 
              const handle = async (e) => { e.preventDefault(); const res = await fetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ username: e.target.username.value, password: e.target.password.value }) }); const data = await res.json(); if(data.success) onLogin(data.user); else addToast("Login Failed", 'error'); };
-             return (<div className="min-h-screen bg-gray-50 flex items-center justify-center"><form onSubmit={handle} className="bg-white p-8 rounded-2xl shadow-lg w-96"><h2 className="font-bold text-xl mb-6 text-center">Login</h2><input name="username" placeholder="Username" className="block w-full border p-3 rounded mb-4" /><input name="password" type="password" placeholder="Password" className="block w-full border p-3 rounded mb-6" /><button className="w-full bg-slate-900 text-white py-3 rounded font-bold">Sign In</button></form></div>);
+             return (<div className="min-h-screen bg-gray-50 flex items-center justify-center"><form onSubmit={handle} className="bg-white p-10 rounded-3xl shadow-xl w-96 relative"><button type="button" onClick={onBack} className="absolute top-6 left-6 text-gray-400 font-bold">←</button><h2 className="font-bold text-2xl mb-8 text-center text-slate-900">Teacher Login</h2><input name="username" placeholder="Username" className="block w-full bg-gray-50 border-gray-200 border p-3 rounded-xl mb-4 font-medium outline-none focus:ring-2 focus:ring-indigo-500" /><input name="password" type="password" placeholder="Password" className="block w-full bg-gray-50 border-gray-200 border p-3 rounded-xl mb-6 font-medium outline-none focus:ring-2 focus:ring-indigo-500" /><button className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold hover:bg-black transition">Sign In</button></form></div>);
         }
-        function AdminView({ user, onLogout }) { return <div className="p-8">Admin View (Manage Teachers via API) <button onClick={onLogout}>Logout</button></div> }
+        function StudentApp({ linkId }) { return <div className="text-center p-10 font-bold">Please use the full Student App implementation from previous code... (Placeholder for brevity in this specific update, merging logic...)</div> }
+        function StudentList({ addToast }) { return <div className="p-8">Student List Component</div> } 
+        function ExamStats({ examId }) { return <div className="p-8">Stats for {examId}</div> }
+
+        // MERGING BACK THE FULL STUDENT APP LOGIC BECAUSE I REPLACED IT WITH PLACEHOLDER ABOVE MISTAKENLY
+        // Restoring StudentApp, StudentList, ExamStats fully below:
         
-        function ExamStats({ examId, onBack }) {
-             const [data, setData] = useState(null);
-             useEffect(() => { fetch(\`/api/analytics/exam?exam_id=\${examId}\`).then(r=>r.json()).then(setData); }, [examId]);
-             if(!data) return <div>Loading...</div>;
-             return (
-                 <div className="anim-enter bg-white p-6 rounded-xl border">
-                    <h3 className="font-bold text-xl mb-4">Results ({data.length})</h3>
-                    <table className="w-full text-left">
-                        <thead><tr className="border-b"><th className="p-2">Name</th><th className="p-2">Score</th><th className="p-2">Date</th></tr></thead>
-                        <tbody>{data.map(r=><tr key={r.id} className="border-b"><td className="p-2">{r.name}</td><td className="p-2">{r.score}/{r.total}</td><td className="p-2 text-sm text-gray-500">{new Date(r.timestamp).toLocaleString()}</td></tr>)}</tbody>
-                    </table>
-                 </div>
-             )
+        StudentApp = function({ linkId }) {
+            const [mode, setMode] = useState('identify'); const [student, setStudent] = useState({ name: '', school_id: '', roll: '' }); const [exam, setExam] = useState(null); const [history, setHistory] = useState(null); const [qIdx, setQIdx] = useState(0); const [score, setScore] = useState(0); const [answers, setAnswers] = useState({}); const [qTime, setQTime] = useState(0); const [totalTime, setTotalTime] = useState(0);
+            useEffect(() => { fetch(\`/api/exam/get?link_id=\${linkId}\`).then(r => r.ok ? r.json() : null).then(data => { if(!data || !data.exam.is_active) return alert("Exam closed or invalid"); setExam(data); }); }, [linkId]);
+            useEffect(() => { if(mode !== 'game' || !exam) return; const s = JSON.parse(exam.exam.settings || '{}'); const int = setInterval(() => { if(s.timerMode === 'question') { if(qTime > 0) setQTime(t=>t-1); else nextQ(); } else if(s.timerMode === 'total') { if(totalTime > 0) setTotalTime(t=>t-1); else finish(); } }, 1000); return () => clearInterval(int); }, [mode, qTime, totalTime, exam]);
+            const nextQ = () => { if(qIdx < exam.questions.length - 1) { setQIdx(p=>p+1); const s = JSON.parse(exam.exam.settings || '{}'); if(s.timerMode === 'question') setQTime(s.timerValue || 30); } else finish(); };
+            const finish = async () => { let fs = 0; const det = exam.questions.map(q => { const s = answers[q.id]; const c = JSON.parse(q.choices).find(x=>x.isCorrect)?.id; if(s===c) fs++; return { qId: q.id, selected: s, correct: c, isCorrect: s===c }; }); setScore(fs); setMode('summary'); if((fs/exam.questions.length)>0.7) confetti({particleCount:150, spread:70, origin:{y:0.6}}); await fetch('/api/submit', { method: 'POST', body: JSON.stringify({ link_id: linkId, student, score: fs, total: exam.questions.length, answers: det }) }); };
+            if(!exam) return <div className="min-h-screen bg-indigo-900 flex items-center justify-center text-white">Loading...</div>;
+            const settings = JSON.parse(exam.exam.settings || '{}');
+            
+            if(mode === 'identify') return (<div className="min-h-screen bg-gradient-to-br from-indigo-900 to-purple-800 flex items-center justify-center p-4"><div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md text-center anim-pop"><h1 className="text-2xl font-black mb-4">Login</h1><input className="w-full bg-gray-100 p-4 rounded-xl font-bold mb-4" placeholder="ID Number" value={student.school_id} onChange={e=>setStudent({...student, school_id:e.target.value})} /><button onClick={async()=>{ const r=await fetch('/api/student/identify', {method:'POST', body:JSON.stringify({school_id:student.school_id})}).then(x=>x.json()); if(r.found) { setStudent({...r.student, ...student}); setHistory(r.stats); setMode('lobby'); } else setMode('register'); }} className="w-full bg-purple-600 text-white font-bold py-4 rounded-xl">Next</button></div></div>);
+            if(mode === 'register') return (<div className="min-h-screen bg-indigo-900 flex items-center justify-center p-4"><div className="bg-white p-8 rounded-3xl w-full max-w-md anim-pop"><h2 className="font-bold text-2xl mb-4">New Student</h2><input className="w-full bg-gray-100 p-3 rounded-lg mb-4" placeholder="Name" value={student.name} onChange={e=>setStudent({...student, name:e.target.value})} /><input className="w-full bg-gray-100 p-3 rounded-lg mb-4" placeholder="Roll" value={student.roll} onChange={e=>setStudent({...student, roll:e.target.value})} /><button onClick={()=>setMode('lobby')} className="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg">Save</button></div></div>);
+            if(mode === 'lobby') return (<div className="min-h-screen bg-gray-50 flex items-center justify-center p-4"><div className="bg-white p-8 rounded-3xl shadow-lg w-full max-w-md text-center anim-pop"><h2 className="text-3xl font-black mb-2">Hi, {student.name}!</h2><p className="text-gray-500 mb-8">{exam.exam.title}</p><button onClick={async()=>{ if(!settings.allowRetakes){ const c=await fetch('/api/student/check', {method:'POST', body:JSON.stringify({exam_id:exam.exam.id, school_id:student.school_id})}).then(r=>r.json()); if(!c.canTake) return alert("Already taken"); } setMode('game'); if(settings.timerMode==='question') setQTime(settings.timerValue||30); if(settings.timerMode==='total') setTotalTime((settings.timerValue||10)*60); }} className="w-full bg-indigo-600 text-white font-black text-xl py-4 rounded-xl shadow-lg">Start Exam</button></div></div>);
+            if(mode === 'game') return (<div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-4"><div className="w-full max-w-2xl bg-slate-800 p-4 rounded-xl mb-8 flex justify-between"><span>Q {qIdx+1}</span><span className="font-mono font-bold text-xl">{(settings.timerMode==='question'?qTime:totalTime)}s</span></div><div className="w-full max-w-2xl text-center"><div className="bg-white text-black p-8 rounded-3xl mb-4">{exam.questions[qIdx].image_key && <img src={\`/img/\${exam.questions[qIdx].image_key}\`} className="max-h-48 mx-auto mb-4"/>}<h2 className="text-2xl font-bold">{exam.questions[qIdx].text}</h2></div><div className="grid grid-cols-1 md:grid-cols-2 gap-4">{JSON.parse(exam.questions[qIdx].choices).map(c=><button key={c.id} onClick={()=>{ setAnswers({...answers, [exam.questions[qIdx].id]:c.id}); if(settings.timerMode==='question') setTimeout(nextQ, 300); }} className={\`p-6 rounded-2xl bg-slate-800 border border-slate-700 hover:bg-slate-700 text-left font-bold \${answers[exam.questions[qIdx].id]===c.id?'ring-2 ring-indigo-500':''}\`}>{c.text}</button>)}</div><div className="mt-8 flex justify-between">{settings.allowBack && <button onClick={()=>setQIdx(Math.max(0, qIdx-1))} className="px-6 py-2 bg-slate-700 rounded-lg">Back</button>}{settings.timerMode==='total' && <button onClick={qIdx===exam.questions.length-1?finish:()=>setQIdx(qIdx+1)} className="px-6 py-2 bg-white text-black rounded-lg">Next</button>}</div></div></div>);
+            if(mode === 'summary') return (<div className="min-h-screen bg-gray-900 flex items-center justify-center text-center p-4"><div className="bg-gray-800 p-10 rounded-3xl border border-gray-700"><h2 className="text-4xl font-bold text-white mb-4">Finished!</h2><div className="text-6xl font-black text-green-400 mb-8">{score} / {exam.questions.length}</div><button onClick={()=>window.location.href='/'} className="bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold">Done</button></div></div>);
+        }
+
+        StudentList = function({ addToast }) {
+            const [students, setStudents] = useState([]);
+            useEffect(() => { fetch('/api/students/list').then(r=>r.json()).then(setStudents); }, []);
+            return (<div className="bg-white rounded-xl border overflow-hidden"><table className="w-full text-left"><thead className="bg-gray-50 text-xs uppercase text-gray-500"><tr><th className="p-4">Name</th><th className="p-4">ID</th><th className="p-4">Score</th></tr></thead><tbody>{students.map(s=><tr key={s.id} className="border-t hover:bg-gray-50"><td className="p-4 font-bold">{s.name}</td><td className="p-4 font-mono text-xs">{s.school_id}</td><td className="p-4"><span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-bold">{Math.round(s.avg_score||0)}%</span></td></tr>)}</tbody></table></div>);
+        }
+
+        ExamStats = function({ examId }) {
+            const [data, setData] = useState([]);
+            useEffect(() => { fetch(\`/api/analytics/exam?exam_id=\${examId}\`).then(r=>r.json()).then(setData); }, [examId]);
+            return (<div className="bg-white rounded-xl border p-6"><h3 className="font-bold mb-4">Submissions ({data.length})</h3><div className="space-y-2">{data.map(r=><div key={r.id} className="flex justify-between border-b pb-2"><span>{r.name}</span><span className="font-bold">{r.score}/{r.total}</span></div>)}</div></div>);
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
