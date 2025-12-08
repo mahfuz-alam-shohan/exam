@@ -48,59 +48,51 @@ async function handleApi(request, env, path, url) {
         const count = await env.DB.prepare("SELECT COUNT(*) as count FROM users").first('count');
         return Response.json({ installed: true, hasAdmin: count > 0 });
       } catch (e) {
-        return Response.json({ installed: false, hasAdmin: false });
+        return Response.json({ installed: false, hasAdmin: false, error: e.message });
       }
     }
 
     if (path === '/api/system/init' && method === 'POST') {
+      // Clean SQL without comments to avoid D1 parsing errors
       await env.DB.exec(`
-        -- Users Table (Admins and Teachers)
         CREATE TABLE IF NOT EXISTS users (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           username TEXT UNIQUE,
           password TEXT,
           name TEXT,
-          role TEXT DEFAULT 'teacher', -- 'super_admin' or 'teacher'
+          role TEXT DEFAULT 'teacher',
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
-
-        -- Students Table (Persistent Data)
         CREATE TABLE IF NOT EXISTS students (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          school_id TEXT UNIQUE, -- The permanent ID (e.g., Roll No / Registration No)
+          school_id TEXT UNIQUE,
           name TEXT,
           roll TEXT,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
-
-        -- Exams Table
         CREATE TABLE IF NOT EXISTS exams (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          link_id TEXT UNIQUE, -- UUID for the direct link
+          link_id TEXT UNIQUE,
           title TEXT,
           teacher_id INTEGER,
-          settings TEXT, -- JSON: { timer, shuffle }
+          settings TEXT,
           is_active BOOLEAN DEFAULT 1,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
-
-        -- Questions Table
         CREATE TABLE IF NOT EXISTS questions (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           exam_id INTEGER,
           text TEXT,
           image_key TEXT,
-          choices TEXT -- JSON
+          choices TEXT
         );
-
-        -- Attempts/Submissions Table
         CREATE TABLE IF NOT EXISTS attempts (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           exam_id INTEGER,
-          student_db_id INTEGER, -- Links to students.id
+          student_db_id INTEGER,
           score INTEGER,
           total INTEGER,
-          details TEXT, -- JSON answer details
+          details TEXT,
           timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY(student_db_id) REFERENCES students(id)
         );
@@ -111,12 +103,25 @@ async function handleApi(request, env, path, url) {
     // 2. AUTHENTICATION & USER MANAGEMENT
     if (path === '/api/auth/setup-admin' && method === 'POST') {
       // Only allows creation if 0 users exist
-      const count = await env.DB.prepare("SELECT COUNT(*) as count FROM users").first('count');
+      let count = 0;
+      try {
+        count = await env.DB.prepare("SELECT COUNT(*) as count FROM users").first('count');
+      } catch(e) {
+          // If table doesn't exist, we can't create admin. This catches that case.
+          return Response.json({ error: "Database not initialized. Please refresh and try again." }, { status: 500 });
+      }
+
       if (count > 0) return Response.json({ error: "Admin already exists" }, { status: 403 });
 
       const { username, password, name } = await request.json();
-      await env.DB.prepare("INSERT INTO users (username, password, name, role) VALUES (?, ?, ?, 'super_admin')")
-        .bind(username, password, name).run();
+      
+      try {
+        await env.DB.prepare("INSERT INTO users (username, password, name, role) VALUES (?, ?, ?, 'super_admin')")
+          .bind(username, password, name).run();
+      } catch(e) {
+         return Response.json({ error: "Error creating user: " + e.message }, { status: 500 });
+      }
+
       return Response.json({ success: true });
     }
 
@@ -281,29 +286,44 @@ function getHtml() {
 
         // 1. SYSTEM SETUP (First Run)
         function SetupAdmin({ onComplete }) {
+            const [status, setStatus] = useState('idle'); // idle, initializing, creating
+            const [error, setError] = useState('');
+
             const handleSubmit = async (e) => {
                 e.preventDefault();
+                setError('');
+                setStatus('initializing');
+                
                 const data = {
                     name: e.target.name.value,
                     username: e.target.username.value,
                     password: e.target.password.value
                 };
                 
-                // Initialize DB first
-                await fetch('/api/system/init', { method: 'POST' });
-                
-                // Create Admin
-                const res = await fetch('/api/auth/setup-admin', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(data)
-                });
-                
-                if(res.ok) {
-                    alert("Super Admin Created! Please Login.");
-                    onComplete();
-                } else {
-                    alert("Error creating admin.");
+                try {
+                    // Initialize DB first
+                    const initRes = await fetch('/api/system/init', { method: 'POST' });
+                    if (!initRes.ok) throw new Error("Failed to initialize database tables");
+
+                    // Create Admin
+                    setStatus('creating');
+                    const res = await fetch('/api/auth/setup-admin', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(data)
+                    });
+                    
+                    const result = await res.json();
+                    
+                    if(res.ok && result.success) {
+                        alert("Super Admin Created! Please Login.");
+                        onComplete();
+                    } else {
+                        throw new Error(result.error || "Failed to create admin");
+                    }
+                } catch (err) {
+                    setError(err.message);
+                    setStatus('idle');
                 }
             };
 
@@ -313,6 +333,11 @@ function getHtml() {
                         <h1 className="text-2xl font-bold mb-2 text-blue-900">Welcome to ExamMaster</h1>
                         <p className="text-gray-500 mb-6 text-sm">System Setup: Create the Owner Account.</p>
                         
+                        {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+                            <strong className="font-bold">Error: </strong>
+                            <span className="block sm:inline">{error}</span>
+                        </div>}
+
                         <label className="block text-sm font-bold mb-1">Full Name</label>
                         <input name="name" className="w-full border p-2 rounded mb-3" required />
                         
@@ -322,7 +347,9 @@ function getHtml() {
                         <label className="block text-sm font-bold mb-1">Password</label>
                         <input name="password" type="password" className="w-full border p-2 rounded mb-6" required />
                         
-                        <button className="w-full bg-blue-600 text-white font-bold py-2 rounded hover:bg-blue-700">Initialize System</button>
+                        <button disabled={status !== 'idle'} className="w-full bg-blue-600 text-white font-bold py-2 rounded hover:bg-blue-700 disabled:opacity-50">
+                            {status === 'idle' ? 'Initialize System' : 'Processing...'}
+                        </button>
                     </form>
                 </div>
             );
