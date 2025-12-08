@@ -53,51 +53,19 @@ async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/system/init' && method === 'POST') {
-      // Clean SQL without comments to avoid D1 parsing errors
-      await env.DB.exec(`
-        CREATE TABLE IF NOT EXISTS users (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          username TEXT UNIQUE,
-          password TEXT,
-          name TEXT,
-          role TEXT DEFAULT 'teacher',
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE IF NOT EXISTS students (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          school_id TEXT UNIQUE,
-          name TEXT,
-          roll TEXT,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE IF NOT EXISTS exams (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          link_id TEXT UNIQUE,
-          title TEXT,
-          teacher_id INTEGER,
-          settings TEXT,
-          is_active BOOLEAN DEFAULT 1,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE IF NOT EXISTS questions (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          exam_id INTEGER,
-          text TEXT,
-          image_key TEXT,
-          choices TEXT
-        );
-        CREATE TABLE IF NOT EXISTS attempts (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          exam_id INTEGER,
-          student_db_id INTEGER,
-          score INTEGER,
-          total INTEGER,
-          details TEXT,
-          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY(student_db_id) REFERENCES students(id)
-        );
-      `);
-      return Response.json({ success: true });
+      // Use batch() for stable schema creation instead of exec()
+      try {
+        await env.DB.batch([
+          env.DB.prepare("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT, name TEXT, role TEXT DEFAULT 'teacher', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
+          env.DB.prepare("CREATE TABLE IF NOT EXISTS students (id INTEGER PRIMARY KEY AUTOINCREMENT, school_id TEXT UNIQUE, name TEXT, roll TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
+          env.DB.prepare("CREATE TABLE IF NOT EXISTS exams (id INTEGER PRIMARY KEY AUTOINCREMENT, link_id TEXT UNIQUE, title TEXT, teacher_id INTEGER, settings TEXT, is_active BOOLEAN DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
+          env.DB.prepare("CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER, text TEXT, image_key TEXT, choices TEXT)"),
+          env.DB.prepare("CREATE TABLE IF NOT EXISTS attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER, student_db_id INTEGER, score INTEGER, total INTEGER, details TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(student_db_id) REFERENCES students(id))")
+        ]);
+        return Response.json({ success: true });
+      } catch (err) {
+        return Response.json({ error: "D1 Batch Error: " + err.message }, { status: 500 });
+      }
     }
 
     // 2. AUTHENTICATION & USER MANAGEMENT
@@ -303,7 +271,17 @@ function getHtml() {
                 try {
                     // Initialize DB first
                     const initRes = await fetch('/api/system/init', { method: 'POST' });
-                    if (!initRes.ok) throw new Error("Failed to initialize database tables");
+                    
+                    if (!initRes.ok) {
+                        const errText = await initRes.text();
+                        // Try to parse as JSON if possible for cleaner message
+                        try {
+                            const errJson = JSON.parse(errText);
+                            throw new Error(errJson.error || errText);
+                        } catch(e) {
+                            throw new Error(errText);
+                        }
+                    }
 
                     // Create Admin
                     setStatus('creating');
