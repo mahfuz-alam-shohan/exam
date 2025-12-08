@@ -190,7 +190,7 @@ async function handleApi(request, env, path, url) {
         if(!student) return Response.json({ found: false });
 
         const history = await env.DB.prepare(`
-            SELECT a.*, e.title 
+            SELECT a.*, e.title, e.id as exam_id
             FROM attempts a 
             JOIN exams e ON a.exam_id = e.id 
             WHERE a.student_db_id = ? 
@@ -799,27 +799,87 @@ function getHtml() {
         // --- SUB-APPS (Code Splitting Logic) ---
         
         function StudentExamApp({ linkId }) {
-            // ... (Same logic as previous advanced implementation, styled for mobile)
-            // For brevity in this response, I'll implement the core flow with the new UI styles
             const [mode, setMode] = useState('identify'); 
             const [student, setStudent] = useState({ name: '', school_id: '', roll: '' }); 
             const [exam, setExam] = useState(null); 
             const [qIdx, setQIdx] = useState(0); 
             const [score, setScore] = useState(0); 
             const [answers, setAnswers] = useState({});
+            
+            // New States for rich review
+            const [resultDetails, setResultDetails] = useState(null);
+            const [examHistory, setExamHistory] = useState([]);
+
+            // Timers
+            const [qTime, setQTime] = useState(0);
+            const [totalTime, setTotalTime] = useState(0);
 
             useEffect(() => { fetch(\`/api/exam/get?link_id=\${linkId}\`).then(r=>r.json()).then(d => d.exam?.is_active ? setExam(d) : alert("Exam Closed")); }, [linkId]);
 
-            const next = () => { if(qIdx < exam.questions.length - 1) setQIdx(qIdx+1); else finish(); }
+            // Timer Tick
+            useEffect(() => {
+                if(mode !== 'game' || !exam) return;
+                const settings = JSON.parse(exam.exam.settings || '{}');
+                const int = setInterval(() => {
+                    if(settings.timerMode === 'question') {
+                        if(qTime > 0) setQTime(t => t - 1);
+                        else next(); 
+                    } else if(settings.timerMode === 'total') {
+                        if(totalTime > 0) setTotalTime(t => t - 1);
+                        else finish(); 
+                    }
+                }, 1000);
+                return () => clearInterval(int);
+            }, [mode, qTime, totalTime, exam]);
+
+            const next = () => { 
+                if(qIdx < exam.questions.length - 1) { 
+                    setQIdx(qIdx+1); 
+                    const s = JSON.parse(exam.exam.settings || '{}');
+                    if(s.timerMode === 'question') setQTime(s.timerValue || 30);
+                } else finish(); 
+            };
+
             const finish = async () => {
                 let fs = 0;
-                const det = exam.questions.map(q => { const s = answers[q.id]; const c = JSON.parse(q.choices).find(x=>x.isCorrect)?.id; if(s===c) fs++; return { qId: q.id, selected: s, correct: c, isCorrect: s===c }; });
-                setScore(fs); setMode('summary');
+                const det = exam.questions.map(q => { 
+                    const s = answers[q.id]; 
+                    const choices = JSON.parse(q.choices);
+                    const correctChoice = choices.find(x => x.isCorrect);
+                    const selectedChoice = choices.find(x => x.id === s);
+                    const c = correctChoice?.id; 
+                    const isCorrect = s === c;
+                    if(isCorrect) fs++; 
+                    return { 
+                        qId: q.id, 
+                        qText: q.text,
+                        choices: choices,
+                        selected: s, 
+                        selectedText: selectedChoice?.text || "Skipped",
+                        correct: c, 
+                        correctText: correctChoice?.text,
+                        isCorrect 
+                    }; 
+                });
+                
+                setScore(fs); 
+                setResultDetails(det);
+                
+                if((fs/exam.questions.length) > 0.6) confetti();
+
                 await fetch('/api/submit', { method: 'POST', body: JSON.stringify({ link_id: linkId, student, score: fs, total: exam.questions.length, answers: det }) });
-                if(fs/exam.questions.length > 0.6) confetti();
-            }
+                
+                // Fetch History for Progress
+                const histRes = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: student.school_id }) }).then(r => r.json());
+                if (histRes.found) {
+                    setExamHistory(histRes.history.filter(h => h.exam_id === exam.exam.id));
+                }
+                
+                setMode('summary');
+            };
 
             if(!exam) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400">Loading Exam...</div>;
+            const settings = JSON.parse(exam.exam.settings || '{}');
 
             if(mode === 'identify') return (
                 <div className="min-h-screen bg-indigo-500 flex items-center justify-center p-6">
@@ -828,7 +888,7 @@ function getHtml() {
                         <input className="w-full bg-gray-100 p-4 rounded-xl font-bold mb-3 outline-none" placeholder="School ID" value={student.school_id} onChange={e=>setStudent({...student, school_id:e.target.value})} />
                         <button onClick={async()=>{
                             const r = await fetch('/api/student/identify', {method:'POST', body:JSON.stringify({school_id:student.school_id})}).then(x=>x.json());
-                            if(r.found) { setStudent({...r.student, ...student}); setMode('game'); } else setMode('register');
+                            if(r.found) { setStudent({...r.student, ...student}); setMode('game'); if(settings.timerMode==='total') setTotalTime((settings.timerValue||10)*60); if(settings.timerMode==='question') setQTime(settings.timerValue||30); } else setMode('register');
                         }} className="w-full bg-black text-white p-4 rounded-xl font-bold">Start</button>
                     </div>
                 </div>
@@ -840,7 +900,7 @@ function getHtml() {
                         <h1 className="text-xl font-bold mb-4">New Student</h1>
                         <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3" placeholder="Full Name" value={student.name} onChange={e=>setStudent({...student, name:e.target.value})} />
                         <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-4" placeholder="Roll No" value={student.roll} onChange={e=>setStudent({...student, roll:e.target.value})} />
-                        <button onClick={()=>setMode('game')} className="w-full bg-indigo-600 text-white p-3 rounded-xl font-bold">Save & Join</button>
+                        <button onClick={()=>{ setMode('game'); if(settings.timerMode==='total') setTotalTime((settings.timerValue||10)*60); if(settings.timerMode==='question') setQTime(settings.timerValue||30); }} className="w-full bg-indigo-600 text-white p-3 rounded-xl font-bold">Save & Join</button>
                     </div>
                 </div>
             );
@@ -849,6 +909,9 @@ function getHtml() {
                 <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-6">
                     <div className="w-full max-w-md flex justify-between items-center mb-8">
                         <div className="font-bold text-slate-500 uppercase text-xs tracking-widest">Question {qIdx+1}/{exam.questions.length}</div>
+                        <div className={\`text-xl font-mono font-bold \${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}\`}>
+                            {settings.timerMode === 'question' ? qTime : Math.floor(totalTime/60) + ':' + (totalTime%60).toString().padStart(2,'0')}
+                        </div>
                     </div>
                     <div className="w-full max-w-md flex-1 flex flex-col justify-center">
                         <div className="bg-white text-slate-900 p-6 rounded-3xl mb-6 text-center shadow-2xl">
@@ -857,22 +920,84 @@ function getHtml() {
                         </div>
                         <div className="grid grid-cols-1 gap-3">
                             {JSON.parse(exam.questions[qIdx].choices).map(c => (
-                                <button key={c.id} onClick={()=>{ setAnswers({...answers, [exam.questions[qIdx].id]:c.id}); setTimeout(next, 250); }} className={\`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 \${answers[exam.questions[qIdx].id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}\`}>
+                                <button key={c.id} onClick={()=>{ setAnswers({...answers, [exam.questions[qIdx].id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }} className={\`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 \${answers[exam.questions[qIdx].id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}\`}>
                                     {c.text}
                                 </button>
                             ))}
+                        </div>
+                        <div className="mt-8 flex justify-end">
+                             {settings.timerMode === 'total' && <button onClick={next} className="px-6 py-2 bg-white text-black rounded-lg font-bold">Next</button>}
                         </div>
                     </div>
                 </div>
             );
 
             if(mode === 'summary') return (
-                <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 text-center">
-                    <div>
-                        <h1 className="text-4xl font-black text-white mb-2">Great Job!</h1>
-                        <p className="text-slate-400 font-bold mb-8">You finished the exam.</p>
-                        <div className="text-8xl font-black text-transparent bg-clip-text bg-gradient-to-tr from-green-400 to-blue-500 mb-8">{score}</div>
-                        <button onClick={()=>window.location.href='/'} className="bg-white text-slate-900 px-8 py-3 rounded-full font-bold">Back to Home</button>
+                <div className="min-h-screen bg-slate-900 text-white p-6 overflow-y-auto">
+                    <div className="max-w-2xl mx-auto space-y-8 pb-20">
+                        {/* Score Card */}
+                        <div className="bg-slate-800 p-8 rounded-3xl text-center border border-slate-700 shadow-2xl">
+                            <h2 className="text-3xl font-black mb-2 text-white">Exam Complete!</h2>
+                            <div className="text-7xl font-black text-transparent bg-clip-text bg-gradient-to-tr from-green-400 to-blue-500 mb-4">{score} / {exam.questions.length}</div>
+                            <div className="text-sm font-bold bg-slate-700 inline-block px-4 py-1 rounded-full text-slate-300">
+                                {Math.round((score/exam.questions.length)*100)}% Accuracy
+                            </div>
+                        </div>
+
+                        {/* Progress Section */}
+                        {examHistory.length > 0 && (
+                            <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700">
+                                <h3 className="font-bold text-xl mb-4 flex items-center gap-2">📈 Your Progress</h3>
+                                <div className="space-y-3">
+                                    {examHistory.map((h, i) => (
+                                        <div key={i} className="flex items-center gap-4">
+                                            <div className="text-xs font-bold text-slate-500 w-24">{new Date(h.timestamp).toLocaleDateString()}</div>
+                                            <div className="flex-1 bg-slate-700 h-4 rounded-full overflow-hidden">
+                                                <div className="bg-blue-500 h-full" style={{width: \`\${(h.score/h.total)*100}%\`}}></div>
+                                            </div>
+                                            <div className="font-bold text-sm">{h.score}/{h.total}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Detailed Review */}
+                        <div className="space-y-4">
+                            <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
+                            {resultDetails.map((q, i) => (
+                                <div key={i} className={\`p-6 rounded-2xl border \${q.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}>
+                                    <div className="font-bold text-lg mb-3">Q{i+1}. {q.qText}</div>
+                                    <div className="space-y-2">
+                                        {q.choices.map(c => {
+                                            const isSelected = c.id === q.selected;
+                                            const isCorrectChoice = c.id === q.correct;
+                                            let style = "bg-slate-800 border-slate-700 text-slate-400"; 
+                                            
+                                            if (isCorrectChoice) style = "bg-green-500 text-white border-green-500";
+                                            else if (isSelected && !q.isCorrect) style = "bg-red-500 text-white border-red-500";
+                                            
+                                            return (
+                                                <div key={c.id} className={\`p-3 rounded-xl border flex justify-between items-center \${style}\`}>
+                                                    <span className="font-bold">{c.text}</span>
+                                                    {isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">You</span>}
+                                                    {isCorrectChoice && !isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">Correct</span>}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Sticky Action Footer */}
+                        {settings.allowRetakes && (
+                            <div className="fixed bottom-0 left-0 w-full p-4 bg-slate-900/90 backdrop-blur border-t border-slate-800 text-center">
+                                <button onClick={() => window.location.reload()} className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-bold shadow-lg shadow-indigo-500/20 active:scale-95 transition w-full max-w-sm">
+                                    Retake Exam
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             );
