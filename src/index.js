@@ -443,8 +443,8 @@ function getHtml() {
             const [data, setData] = useState([]);
             const [viewDetail, setViewDetail] = useState(null);
             
-            useEffect(() => { 
-                fetch(`/api/analytics/exam?exam_id=${examId}`)
+            useEffect(() => {
+                fetch('/api/analytics/exam?exam_id=' + examId)
                     .then(r=>r.json())
                     .then(d => setData(Array.isArray(d) ? d : []))
                     .catch(() => setData([]));
@@ -456,7 +456,7 @@ function getHtml() {
                     <h3 className="font-bold text-xl mb-4">{viewDetail.name}'s Answers</h3>
                     <div className="space-y-4">
                         {JSON.parse(viewDetail.details || '[]').map((d,i) => (
-                            <div key={i} className={`p-4 rounded-lg border \${d.isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                            <div key={i} className={`p-4 rounded-lg border ${d.isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
                                 <div className="font-bold text-gray-800 mb-1">Q{i+1}: {d.qText}</div>
                                 <div className="text-sm">
                                     <span className="font-bold">Student:</span> {d.selectedText} 
