@@ -1,4 +1,6 @@
-
+name = "exam-system"
+main = "src/index.js"
+compatibility_date = "2024-03-20"
 
 [[d1_databases]]
 binding = "DB"
