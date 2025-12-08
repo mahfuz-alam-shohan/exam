@@ -444,7 +444,7 @@ function getHtml() {
             const [viewDetail, setViewDetail] = useState(null);
             
             useEffect(() => { 
-                fetch(\`/api/analytics/exam?exam_id=\${examId}\`)
+                fetch(`/api/analytics/exam?exam_id=${examId}`)
                     .then(r=>r.json())
                     .then(d => setData(Array.isArray(d) ? d : []))
                     .catch(() => setData([]));
@@ -456,7 +456,7 @@ function getHtml() {
                     <h3 className="font-bold text-xl mb-4">{viewDetail.name}'s Answers</h3>
                     <div className="space-y-4">
                         {JSON.parse(viewDetail.details || '[]').map((d,i) => (
-                            <div key={i} className={\`p-4 rounded-lg border \${d.isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}\`}>
+                            <div key={i} className={`p-4 rounded-lg border \${d.isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
                                 <div className="font-bold text-gray-800 mb-1">Q{i+1}: {d.qText}</div>
                                 <div className="text-sm">
                                     <span className="font-bold">Student:</span> {d.selectedText} 
@@ -930,7 +930,7 @@ function getHtml() {
                                         <h4 className="font-bold text-slate-800">{h.title}</h4>
                                         <p className="text-xs text-gray-400 font-bold">{new Date(h.timestamp).toLocaleDateString()}</p>
                                     </div>
-                                    <div className={`text-lg font-black ${ (h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400'}`}>
+                                    <div className={`text-lg font-black \${(h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400'}`}>
                                         {h.score}/{h.total}
                                     </div>
                                 </div>
