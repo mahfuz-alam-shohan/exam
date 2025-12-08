@@ -443,8 +443,8 @@ function getHtml() {
             const [data, setData] = useState([]);
             const [viewDetail, setViewDetail] = useState(null);
             
-            useEffect(() => { 
-                fetch(`/api/analytics/exam?exam_id=${examId}`)
+            useEffect(() => {
+                fetch('/api/analytics/exam?exam_id=' + examId)
                     .then(r=>r.json())
                     .then(d => setData(Array.isArray(d) ? d : []))
                     .catch(() => setData([]));
