@@ -1,7 +1,7 @@
 /**
  * Cloudflare Worker - Exam System (SaaS Masterclass)
  * - Roles: 'super_admin' (Owner), 'teacher' (Creators), 'student' (Takers)
- * - Features: Student Hub, Factory Reset, Exam Deletion, Image Previews, Distinct Flows
+ * - Features: Deep Analytics, Snapshot Reviews, Question Editing, Student Hub, Gamification
  */
 
 export default {
@@ -73,8 +73,6 @@ async function handleApi(request, env, path, url) {
             env.DB.prepare("DELETE FROM exams"),
             env.DB.prepare("DELETE FROM questions"),
             env.DB.prepare("DELETE FROM attempts"),
-            // We keep users so admin doesn't lock themselves out, or optionally wipe everything except admin
-            // For safety, let's keep users.
         ]);
         return Response.json({ success: true });
     }
@@ -128,6 +126,7 @@ async function handleApi(request, env, path, url) {
           // Update Existing
           await env.DB.prepare("UPDATE exams SET title = ?, settings = ? WHERE id = ?")
             .bind(title, JSON.stringify(settings), examId).run();
+          // We wipe questions to re-insert them (simpler than syncing)
           await env.DB.prepare("DELETE FROM questions WHERE exam_id = ?").bind(examId).run();
       } else {
           // Create New
@@ -163,7 +162,7 @@ async function handleApi(request, env, path, url) {
       const choices = formData.get('choices');
       const image = formData.get('image'); 
 
-      let image_key = formData.get('existing_image_key'); // Check if reusing key
+      let image_key = formData.get('existing_image_key'); 
       
       if (image && image.size > 0) {
         image_key = crypto.randomUUID();
@@ -336,6 +335,8 @@ function getHtml() {
       @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
       @keyframes popIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
       .glass { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); }
+      .trophy-shine { background: linear-gradient(45deg, #ffd700, #fff, #ffd700); background-size: 200% 200%; animation: shine 2s infinite; -webkit-background-clip: text; color: transparent; }
+      @keyframes shine { 0% { background-position: 0% 50%; } 100% { background-position: 100% 50%; } }
     </style>
 </head>
 <body class="text-gray-900 antialiased">
@@ -356,6 +357,9 @@ function getHtml() {
             Trash: () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
             Setting: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
             Image: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>,
+            Check: () => <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7"/></svg>,
+            X: () => <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12"/></svg>,
+            Trophy: () => <svg className="w-8 h-8 text-yellow-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd"/><path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z"/></svg>, // Simple star/trophy placeholder
         };
 
         function Toggle({ checked, onChange }) {
@@ -469,7 +473,6 @@ function getHtml() {
                             </div>
                         </div>
                     )}
-                    {/* Reusing shared components logic for other tabs if needed */}
                 </DashboardLayout>
             );
         }
@@ -541,6 +544,7 @@ function getHtml() {
             const [step, setStep] = useState('settings');
             const [settings, setSettings] = useState({ title: '', timerMode: 'question', timerValue: 30, studentFields: { name: true, roll: true, school_id: true }, allowBack: false, allowRetakes: false, showResult: true, showCorrect: false });
             const [questions, setQuestions] = useState([]);
+            const [activeQIndex, setActiveQIndex] = useState(-1);
             const [currQ, setCurrQ] = useState({ text: '', choices: [{id:1, text:'', isCorrect:false}, {id:2, text:'', isCorrect:false}], image: null });
 
             useEffect(() => {
@@ -553,8 +557,27 @@ function getHtml() {
 
             const saveQ = () => {
                 if(!currQ.text || !currQ.choices.some(c=>c.isCorrect)) return addToast("Question incomplete", 'error');
-                setQuestions([...questions, { ...currQ, tempId: Date.now() }]);
+                
+                if (activeQIndex > -1) {
+                    // Update existing
+                    const newQs = [...questions];
+                    newQs[activeQIndex] = { ...currQ, tempId: currQ.tempId || Date.now() };
+                    setQuestions(newQs);
+                    addToast("Question Updated");
+                } else {
+                    // Add new
+                    setQuestions([...questions, { ...currQ, tempId: Date.now() }]);
+                    addToast("Question Added");
+                }
+                
+                // Reset
                 setCurrQ({ text: '', choices: [{id:Date.now(), text:'', isCorrect:false}, {id:Date.now()+1, text:'', isCorrect:false}], image: null });
+                setActiveQIndex(-1);
+            };
+
+            const editQ = (index) => {
+                setCurrQ(questions[index]);
+                setActiveQIndex(index);
             };
 
             const publish = async () => {
@@ -568,7 +591,7 @@ function getHtml() {
                     fd.append('text', q.text);
                     fd.append('choices', JSON.stringify(q.choices));
                     if(q.image instanceof File) fd.append('image', q.image);
-                    else if(q.image_key) fd.append('existing_image_key', q.image_key); // Maintain existing
+                    else if(q.image_key) fd.append('existing_image_key', q.image_key); 
                     await fetch('/api/question/add', { method: 'POST', body: fd });
                 }
                 onFinish();
@@ -602,6 +625,7 @@ function getHtml() {
                             <h3 className="font-bold text-2xl mb-6 text-gray-800">Questions ({questions.length})</h3>
                             
                             <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200 mb-8 anim-enter relative">
+                                <h4 className="text-xs font-bold text-indigo-500 uppercase mb-4">{activeQIndex > -1 ? 'Editing Question' : 'New Question'}</h4>
                                 <textarea value={currQ.text} onChange={e=>setCurrQ({...currQ, text:e.target.value})} className="w-full text-lg font-medium outline-none placeholder-gray-300 mb-4 resize-none" rows="2" placeholder="Type your question here..." autoFocus />
                                 
                                 <div className="mb-6">
@@ -622,14 +646,15 @@ function getHtml() {
                                     ))}
                                     <button onClick={()=>setCurrQ({...currQ, choices: [...currQ.choices, {id:Date.now(), text:'', isCorrect:false}]})} className="text-sm font-bold text-indigo-600 mt-2">+ Add Option</button>
                                 </div>
-                                <div className="mt-6 flex justify-end">
-                                    <button onClick={saveQ} className="bg-gray-900 text-white px-6 py-2 rounded-lg font-bold hover:bg-black">Add to List</button>
+                                <div className="mt-6 flex justify-end gap-2">
+                                    {activeQIndex > -1 && <button onClick={()=>{setActiveQIndex(-1); setCurrQ({ text: '', choices: [{id:Date.now(), text:'', isCorrect:false}, {id:Date.now()+1, text:'', isCorrect:false}], image: null });}} className="text-gray-500 px-4 py-2 font-bold">Cancel Edit</button>}
+                                    <button onClick={saveQ} className="bg-gray-900 text-white px-6 py-2 rounded-lg font-bold hover:bg-black">{activeQIndex > -1 ? 'Update Question' : 'Add to List'}</button>
                                 </div>
                             </div>
 
                             <div className="space-y-3">
                                 {questions.map((q, i) => (
-                                    <div key={i} className="bg-white p-4 rounded-xl border border-gray-200 flex justify-between items-center group hover:shadow-sm transition">
+                                    <div key={i} onClick={() => editQ(i)} className={\`cursor-pointer bg-white p-4 rounded-xl border border-gray-200 flex justify-between items-center group hover:shadow-md transition \${activeQIndex === i ? 'ring-2 ring-indigo-500' : ''}\`}>
                                         <div className="flex items-center gap-4">
                                             <span className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center font-bold text-sm text-gray-500">{i+1}</span>
                                             <div>
@@ -637,7 +662,7 @@ function getHtml() {
                                                 <p className="text-xs text-gray-400">{q.choices.length} options • {q.image || q.image_key ? 'Has Image' : 'Text only'}</p>
                                             </div>
                                         </div>
-                                        <button onClick={()=>setQuestions(questions.filter((_, idx)=>idx!==i))} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"><Icons.Trash /></button>
+                                        <button onClick={(e)=>{e.stopPropagation(); setQuestions(questions.filter((_, idx)=>idx!==i));}} className="text-gray-300 hover:text-red-500 transition px-2"><Icons.Trash /></button>
                                     </div>
                                 ))}
                             </div>
@@ -670,6 +695,7 @@ function getHtml() {
         function StudentPortal({ onBack }) {
             const [id, setId] = useState('');
             const [data, setData] = useState(null);
+            const [reviewExam, setReviewExam] = useState(null);
             
             const fetchHistory = async (e) => {
                 e.preventDefault();
@@ -678,20 +704,90 @@ function getHtml() {
                 else alert("Student ID not found");
             };
 
+            const viewReport = (attempt) => {
+                // If the details are present, show them
+                if (attempt.details) {
+                    setReviewExam({ ...attempt, details: JSON.parse(attempt.details) });
+                } else {
+                    alert("Detailed report not available for this exam.");
+                }
+            };
+
+            if (reviewExam) return (
+                <div className="min-h-screen bg-gray-50 p-6">
+                    <div className="max-w-2xl mx-auto anim-enter">
+                        <button onClick={()=>setReviewExam(null)} className="text-gray-500 font-bold mb-6 hover:text-black">← Back to History</button>
+                        <div className="bg-white p-8 rounded-3xl shadow-xl mb-6">
+                            <div className="flex justify-between items-center mb-4">
+                                <h1 className="text-2xl font-display font-bold text-gray-900">{reviewExam.title}</h1>
+                                <span className={\`text-xl font-black \${(reviewExam.score/reviewExam.total)>0.7 ? 'text-green-500' : 'text-orange-500'}\`}>{reviewExam.score}/{reviewExam.total}</span>
+                            </div>
+                            <p className="text-gray-500 text-sm">Attempted on {new Date(reviewExam.timestamp).toLocaleString()}</p>
+                        </div>
+                        
+                        <div className="space-y-4">
+                            {reviewExam.details.map((d, i) => (
+                                <div key={i} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                                    <div className="font-bold text-gray-800 mb-2">Q{i+1}: {d.qText || "Question Text Unavailable"}</div>
+                                    <div className="space-y-1 text-sm">
+                                        <div className={\`p-2 rounded \${d.isCorrect ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}\`}>
+                                            Your Answer: {d.selectedText || "None"}
+                                        </div>
+                                        {!d.isCorrect && (
+                                            <div className="p-2 rounded bg-gray-100 text-gray-600">
+                                                Correct Answer: {d.correctText || "Hidden"}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+
             if(data) return (
                 <div className="min-h-screen bg-slate-50 p-6">
-                    <div className="max-w-2xl mx-auto anim-enter">
-                        <button onClick={()=>setData(null)} className="text-slate-500 font-bold mb-6 hover:text-slate-800">← Back</button>
-                        <div className="bg-white p-8 rounded-3xl shadow-xl mb-6">
-                            <h1 className="text-3xl font-display font-bold text-slate-900 mb-1">Hi, {data.student.name}</h1>
-                            <p className="text-slate-500">Student ID: {data.student.school_id}</p>
+                    <div className="max-w-3xl mx-auto anim-enter">
+                        <div className="flex justify-between items-center mb-6">
+                            <button onClick={()=>setData(null)} className="text-slate-500 font-bold hover:text-slate-800">← Logout</button>
+                            <h2 className="text-slate-900 font-bold">Student Hub</h2>
                         </div>
-                        <div className="space-y-4">
-                            <h3 className="font-bold text-slate-400 uppercase text-xs tracking-wider ml-2">Recent Activity</h3>
-                            {data.history.map(h => (
-                                <div key={h.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex justify-between items-center">
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                            <div className="col-span-2 bg-gradient-to-br from-indigo-600 to-purple-700 p-8 rounded-3xl shadow-xl text-white">
+                                <h1 className="text-3xl font-display font-bold mb-1">Hi, {data.student.name}</h1>
+                                <p className="opacity-75">ID: {data.student.school_id}</p>
+                                <div className="mt-6 flex gap-4">
                                     <div>
-                                        <h4 className="font-bold text-lg text-slate-800">{h.title}</h4>
+                                        <span className="text-3xl font-bold">{data.history.length}</span>
+                                        <span className="block text-xs uppercase opacity-75 font-bold">Exams</span>
+                                    </div>
+                                    <div className="w-px bg-white/20"></div>
+                                    <div>
+                                        <span className="text-3xl font-bold">{Math.round(data.history.reduce((a,b)=>a+(b.score/b.total),0)/data.history.length * 100 || 0)}%</span>
+                                        <span className="block text-xs uppercase opacity-75 font-bold">Avg Score</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center items-center text-center">
+                                <h3 className="text-slate-400 font-bold uppercase text-xs tracking-wider mb-3">Trophy Case</h3>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {data.history.length > 0 && <div className="text-center" title="First Exam"><span className="text-2xl">🥉</span></div>}
+                                    {data.history.some(h => (h.score/h.total) === 1) && <div className="text-center" title="Perfect Score"><span className="text-2xl">🏆</span></div>}
+                                    {data.history.length > 5 && <div className="text-center" title="Veteran"><span className="text-2xl">🎖️</span></div>}
+                                </div>
+                                {data.history.length === 0 && <span className="text-xs text-gray-400">Complete exams to earn badges!</span>}
+                            </div>
+                        </div>
+
+                        <div className="space-y-4">
+                            <h3 className="font-bold text-slate-400 uppercase text-xs tracking-wider ml-2">Exam History</h3>
+                            {data.history.map(h => (
+                                <div onClick={() => viewReport(h)} key={h.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex justify-between items-center cursor-pointer hover:shadow-md transition group">
+                                    <div>
+                                        <h4 className="font-bold text-lg text-slate-800 group-hover:text-indigo-600 transition">{h.title}</h4>
                                         <p className="text-xs text-slate-400">{new Date(h.timestamp).toLocaleDateString()}</p>
                                     </div>
                                     <div className="text-right">
@@ -778,7 +874,31 @@ function getHtml() {
             useEffect(() => { fetch(\`/api/exam/get?link_id=\${linkId}\`).then(r => r.ok ? r.json() : null).then(data => { if(!data || !data.exam.is_active) return alert("Exam closed or invalid"); setExam(data); }); }, [linkId]);
             useEffect(() => { if(mode !== 'game' || !exam) return; const s = JSON.parse(exam.exam.settings || '{}'); const int = setInterval(() => { if(s.timerMode === 'question') { if(qTime > 0) setQTime(t=>t-1); else nextQ(); } else if(s.timerMode === 'total') { if(totalTime > 0) setTotalTime(t=>t-1); else finish(); } }, 1000); return () => clearInterval(int); }, [mode, qTime, totalTime, exam]);
             const nextQ = () => { if(qIdx < exam.questions.length - 1) { setQIdx(p=>p+1); const s = JSON.parse(exam.exam.settings || '{}'); if(s.timerMode === 'question') setQTime(s.timerValue || 30); } else finish(); };
-            const finish = async () => { let fs = 0; const det = exam.questions.map(q => { const s = answers[q.id]; const c = JSON.parse(q.choices).find(x=>x.isCorrect)?.id; if(s===c) fs++; return { qId: q.id, selected: s, correct: c, isCorrect: s===c }; }); setScore(fs); setMode('summary'); if((fs/exam.questions.length)>0.7) confetti({particleCount:150, spread:70, origin:{y:0.6}}); await fetch('/api/submit', { method: 'POST', body: JSON.stringify({ link_id: linkId, student, score: fs, total: exam.questions.length, answers: det }) }); };
+            const finish = async () => { 
+                let fs = 0; 
+                // SNAPSHOT LOGIC
+                const det = exam.questions.map(q => { 
+                    const s = answers[q.id]; 
+                    const choices = JSON.parse(q.choices);
+                    const correctChoice = choices.find(x=>x.isCorrect);
+                    const selectedChoice = choices.find(x=>x.id === s);
+                    const c = correctChoice?.id; 
+                    if(s===c) fs++; 
+                    // Save text snapshot so if questions change, history is safe
+                    return { 
+                        qId: q.id, 
+                        qText: q.text,
+                        selected: s, 
+                        selectedText: selectedChoice?.text || "Skipped",
+                        correct: c, 
+                        correctText: correctChoice?.text,
+                        isCorrect: s===c 
+                    }; 
+                }); 
+                setScore(fs); setMode('summary'); 
+                if((fs/exam.questions.length)>0.7) confetti({particleCount:150, spread:70, origin:{y:0.6}}); 
+                await fetch('/api/submit', { method: 'POST', body: JSON.stringify({ link_id: linkId, student, score: fs, total: exam.questions.length, answers: det }) }); 
+            };
             if(!exam) return <div className="min-h-screen bg-indigo-900 flex items-center justify-center text-white">Loading...</div>;
             const settings = JSON.parse(exam.exam.settings || '{}');
             
@@ -797,8 +917,47 @@ function getHtml() {
 
         ExamStats = function({ examId }) {
             const [data, setData] = useState([]);
+            const [viewDetail, setViewDetail] = useState(null);
+            
             useEffect(() => { fetch(\`/api/analytics/exam?exam_id=\${examId}\`).then(r=>r.json()).then(setData); }, [examId]);
-            return (<div className="bg-white rounded-xl border p-6"><h3 className="font-bold mb-4">Submissions ({data.length})</h3><div className="space-y-2">{data.map(r=><div key={r.id} className="flex justify-between border-b pb-2"><span>{r.name}</span><span className="font-bold">{r.score}/{r.total}</span></div>)}</div></div>);
+            
+            if(viewDetail) return (
+                <div className="bg-white rounded-xl border p-6 anim-enter">
+                    <button onClick={()=>setViewDetail(null)} className="mb-4 text-sm font-bold text-gray-500">← Back to List</button>
+                    <h3 className="font-bold text-xl mb-4">{viewDetail.name}'s Answers</h3>
+                    <div className="space-y-4">
+                        {JSON.parse(viewDetail.details || '[]').map((d,i) => (
+                            <div key={i} className={\`p-4 rounded-lg border \${d.isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}\`}>
+                                <div className="font-bold text-gray-800 mb-1">Q{i+1}: {d.qText}</div>
+                                <div className="text-sm">
+                                    <span className="font-bold">Student:</span> {d.selectedText} 
+                                    {!d.isCorrect && <span className="ml-4 text-gray-600"><span className="font-bold">Correct:</span> {d.correctText}</span>}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )
+
+            return (
+                <div className="bg-white rounded-xl border p-6">
+                    <h3 className="font-bold mb-4">Submissions ({data.length})</h3>
+                    <div className="space-y-2">
+                        {data.map(r=>(
+                            <div key={r.id} className="flex justify-between border-b pb-2 items-center">
+                                <div>
+                                    <div className="font-bold">{r.name}</div>
+                                    <div className="text-xs text-gray-500">{new Date(r.timestamp).toLocaleString()}</div>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                    <span className="font-bold text-lg">{r.score}/{r.total}</span>
+                                    <button onClick={()=>setViewDetail(r)} className="text-indigo-600 text-xs font-bold border border-indigo-200 px-2 py-1 rounded hover:bg-indigo-50">View Answers</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
