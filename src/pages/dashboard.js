@@ -37,7 +37,7 @@ ${getHeadContent()}
     <script>window.__INITIAL_ROUTE__ = ${JSON.stringify(initialRoute)};</script>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo, Component } = React;
+        const { useState, useEffect, useMemo, useRef, Component } = React;
 
         // --- ERROR BOUNDARY ---
         class ErrorBoundary extends Component {
@@ -320,7 +320,7 @@ ${getHeadContent()}
             const handleReset = async () => {
                 if(!confirm("⚠️ FACTORY RESET: Delete EVERYTHING?")) return;
                 try {
-                    await apiFetch('/api/system/reset', { method: 'POST' });
+                    await apiFetch('/api/system/reset', { method: 'POST', headers: { 'x-user-role': user?.role || '' } });
                     addToast("System Reset");
                 } catch(err) {
                     addToast(err.message || 'Reset failed', 'error');
@@ -599,9 +599,11 @@ ${getHeadContent()}
 
         // 5. STUDENT EXAM APP (With Dropdowns & Validation)
         function StudentExamApp({ linkId }) {
-            const [mode, setMode] = useState('identify'); 
-            const [student, setStudent] = useState({ name: '', school_id: '', roll: '', class: '', section: '' }); 
-            const [exam, setExam] = useState(null); 
+            const stateKey = `mc_exam_state_${linkId}`;
+            const restoredState = useRef(null);
+            const [mode, setMode] = useState('identify');
+            const [student, setStudent] = useState({ name: '', school_id: '', roll: '', class: '', section: '' });
+            const [exam, setExam] = useState(null);
             const [config, setConfig] = useState({ classes: [], sections: [] });
             
             // Game State
@@ -613,15 +615,36 @@ ${getHeadContent()}
             const [qTime, setQTime] = useState(0);
             const [totalTime, setTotalTime] = useState(0);
 
-            useEffect(() => { 
+            useEffect(() => {
+                try {
+                    const saved = localStorage.getItem(stateKey);
+                    if (saved) restoredState.current = JSON.parse(saved);
+                } catch (e) {}
+            }, [stateKey]);
+
+            useEffect(() => {
                 fetch(\`/api/exam/get?link_id=\${linkId}\`).then(r=>r.json()).then(d => {
                     if(!d.exam?.is_active) return alert("Exam Closed");
                     setExam(d);
                     const classes = [...new Set(d.config.filter(c=>c.type==='class').map(c=>c.value))];
                     const sections = [...new Set(d.config.filter(c=>c.type==='section').map(c=>c.value))];
                     setConfig({ classes, sections });
-                }); 
+                });
             }, [linkId]);
+
+            useEffect(() => {
+                if (exam && restoredState.current) {
+                    const saved = restoredState.current;
+                    if (saved.student) setStudent(saved.student);
+                    if (saved.answers) setAnswers(saved.answers);
+                    if (typeof saved.qIdx === 'number' && exam.questions?.length) {
+                        const clamped = Math.min(saved.qIdx, exam.questions.length - 1);
+                        setQIdx(clamped);
+                    }
+                    if (saved.mode) setMode(saved.mode);
+                    restoredState.current = null;
+                }
+            }, [exam]);
 
             // Timer Tick
             useEffect(() => {
@@ -639,7 +662,14 @@ ${getHeadContent()}
                 return () => clearInterval(int);
             }, [mode, qTime, totalTime, exam]);
 
-            const next = () => { 
+            useEffect(() => {
+                try {
+                    const payload = { qIdx, answers, mode, student };
+                    localStorage.setItem(stateKey, JSON.stringify(payload));
+                } catch (e) {}
+            }, [qIdx, answers, mode, student, stateKey]);
+
+            const next = () => {
                 if(qIdx < exam.questions.length - 1) { 
                     setQIdx(qIdx+1); 
                     const s = JSON.parse(exam.exam.settings || '{}');
@@ -664,6 +694,7 @@ ${getHeadContent()}
                 await fetch('/api/submit', { method: 'POST', body: JSON.stringify({ link_id: linkId, student, score: fs, total: exam.questions.length, answers: det }) });
                 const histRes = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: student.school_id }) }).then(r => r.json());
                 if (histRes.found) setExamHistory(histRes.history.filter(h => h.exam_id === exam.exam.id));
+                localStorage.removeItem(stateKey);
                 setMode('summary');
             };
 
