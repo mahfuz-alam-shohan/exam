@@ -2,6 +2,7 @@
  * Cloudflare Worker - My Class (SaaS Masterclass)
  * - Branding: "My Class" (Playful, Kiddy, Mobile-First)
  * - Features: Class/Section Management, Student Filtering, robust Image Handling, Analytics
+ * - Fixes: Crash protection for missing tables/null data in StudentList
  */
 
 export default {
@@ -91,8 +92,14 @@ async function handleApi(request, env, path, url) {
 
     // 2. CONFIG (Classes/Sections)
     if (path === '/api/config/get' && method === 'GET') {
-        const data = await env.DB.prepare("SELECT * FROM school_config ORDER BY value ASC").all();
-        return Response.json(data.results);
+        // Auto-create table if missing to prevent crashes on legacy installs
+        try {
+            const data = await env.DB.prepare("SELECT * FROM school_config ORDER BY value ASC").all();
+            return Response.json(data.results);
+        } catch(e) {
+            await env.DB.prepare("CREATE TABLE IF NOT EXISTS school_config (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT)").run();
+            return Response.json([]);
+        }
     }
 
     if (path === '/api/config/add' && method === 'POST') {
@@ -279,9 +286,14 @@ async function handleApi(request, env, path, url) {
       
       const questions = await env.DB.prepare("SELECT * FROM questions WHERE exam_id = ?").bind(exam.id).all();
       // Fetch school config for dropdowns in Student App
-      const config = await env.DB.prepare("SELECT * FROM school_config").all();
+      // Robust fetch: if table missing, return empty array
+      let config = [];
+      try {
+          const c = await env.DB.prepare("SELECT * FROM school_config").all();
+          config = c.results;
+      } catch(e) {}
       
-      return Response.json({ exam, questions: questions.results, config: config.results });
+      return Response.json({ exam, questions: questions.results, config });
     }
     
     if (path === '/api/student/check' && method === 'POST') {
@@ -399,6 +411,7 @@ function getHtml() {
                         <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-red-50 text-red-900 text-center">
                             <h1 className="text-3xl font-bold mb-4">Oops! 🐞</h1>
                             <p className="mb-4">Something went wrong.</p>
+                            <pre className="bg-white p-2 rounded text-xs text-left overflow-auto max-w-sm border border-red-200">{this.state.error?.toString()}</pre>
                             <button onClick={() => window.location.reload()} className="mt-6 bg-red-600 text-white px-6 py-3 rounded-xl font-bold">Reload App</button>
                         </div>
                     );
@@ -413,7 +426,7 @@ function getHtml() {
             Home: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>,
             Exam: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>,
             Users: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>,
-            Setting: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
+            Setting: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
             Back: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>,
             Edit: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>,
             Trash: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
@@ -562,7 +575,7 @@ function getHtml() {
             const [val, setVal] = useState('');
 
             useEffect(() => { load(); }, []);
-            const load = () => fetch('/api/config/get').then(r=>r.json()).then(setConfig);
+            const load = () => fetch('/api/config/get').then(r=>r.json()).then(d => { if(Array.isArray(d)) setConfig(d); });
 
             const add = async (e) => {
                 e.preventDefault();
@@ -725,16 +738,19 @@ function getHtml() {
 
             useEffect(() => { 
                 fetch('/api/students/list').then(r=>r.json()).then(d=>setList(Array.isArray(d)?d:[]));
-                fetch('/api/config/get').then(r=>r.json()).then(setConfig);
+                fetch('/api/config/get').then(r=>r.json()).then(d => { if(Array.isArray(d)) setConfig(d); });
             }, []);
 
-            const classes = [...new Set(config.filter(c=>c.type==='class').map(c=>c.value))];
-            const sections = [...new Set(config.filter(c=>c.type==='section').map(c=>c.value))];
+            const classes = Array.isArray(config) ? [...new Set(config.filter(c=>c.type==='class').map(c=>c.value))] : [];
+            const sections = Array.isArray(config) ? [...new Set(config.filter(c=>c.type==='section').map(c=>c.value))] : [];
 
             const filtered = list.filter(s => {
+                const sName = s.name || "";
+                const sId = s.school_id || "";
+                
                 if(filterClass && s.class !== filterClass) return false;
                 if(filterSec && s.section !== filterSec) return false;
-                if(search && !s.name.toLowerCase().includes(search.toLowerCase()) && !s.school_id.includes(search)) return false;
+                if(search && !sName.toLowerCase().includes(search.toLowerCase()) && !sId.includes(search)) return false;
                 return true;
             });
 
