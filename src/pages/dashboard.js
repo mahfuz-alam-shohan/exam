@@ -406,7 +406,8 @@ ${getHeadContent()}
                         const params = new URLSearchParams(window.location.search);
                         if (params.has('examId')) {
                             params.delete('examId');
-                            const url = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}${window.location.hash}`;
+                            const queryString = params.toString();
+                            const url = `${window.location.pathname}${queryString ? '?' + queryString : ''}${window.location.hash}`;
                             window.history.replaceState(evt.state || { mode: 'list' }, '', url);
                         }
                     }
@@ -429,7 +430,8 @@ ${getHeadContent()}
                 const params = new URLSearchParams(window.location.search);
                 if (nextMode === 'create' && nextEditId) params.set('examId', nextEditId);
                 else params.delete('examId');
-                const url = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}${window.location.hash}`;
+                const queryString = params.toString();
+                const url = `${window.location.pathname}${queryString ? '?' + queryString : ''}${window.location.hash}`;
                 window.history.pushState({ mode: nextMode, editId: nextEditId, statId: options.statId ?? statId }, '', url);
             };
 
