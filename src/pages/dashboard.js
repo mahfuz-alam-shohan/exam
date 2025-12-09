@@ -729,7 +729,7 @@ ${getHeadContent()}
                                             <div className="font-bold">{new Date(h.timestamp).toLocaleString()}</div>
                                             <div className="text-xs text-slate-400">Score {h.score}/{h.total}</div>
                                         </div>
-                                        <div className={`px-3 py-1 rounded-full text-xs font-bold ${((h.score / h.total) > 0.7) ? 'bg-green-500/20 text-green-300' : 'bg-orange-500/20 text-orange-200'}`}>
+                                        <div className={\`px-3 py-1 rounded-full text-xs font-bold \\${((h.score / h.total) > 0.7) ? 'bg-green-500/20 text-green-300' : 'bg-orange-500/20 text-orange-200'}\`}>
                                             {Math.round((h.score / h.total) * 100)}%
                                         </div>
                                     </div>
