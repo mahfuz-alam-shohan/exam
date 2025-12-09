@@ -384,26 +384,80 @@ ${getHeadContent()}
             const [exams, setExams] = useState([]);
             const [editId, setEditId] = useState(null);
             const [statId, setStatId] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                const params = new URLSearchParams(window.location.search);
+                const initialExamId = params.get('examId');
+                if (initialExamId) {
+                    setEditId(initialExamId);
+                    setMode('create');
+                    window.history.replaceState({ mode: 'create', editId: initialExamId }, '', window.location.href);
+                } else if (!window.history.state) {
+                    window.history.replaceState({ mode: 'list' }, '', window.location.href);
+                }
+
+                const onPop = (evt) => {
+                    const stateMode = evt.state?.mode || 'list';
+                    setMode(stateMode);
+                    setEditId(evt.state?.editId || null);
+                    setStatId(evt.state?.statId || null);
+                    if (stateMode === 'list') {
+                        const params = new URLSearchParams(window.location.search);
+                        if (params.has('examId')) {
+                            params.delete('examId');
+                            const url = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}${window.location.hash}`;
+                            window.history.replaceState(evt.state || { mode: 'list' }, '', url);
+                        }
+                    }
+                };
+
+                window.addEventListener('popstate', onPop);
+                return () => window.removeEventListener('popstate', onPop);
+            }, []);
 
             useEffect(() => { loadExams(); }, []);
-            const loadExams = () => fetch(\`/api/teacher/exams?teacher_id=\${user.id}\`).then(r=>r.json()).then(d=>setExams(Array.isArray(d)?d:[]));
+            const loadExams = () => {
+                setLoading(true);
+                fetch(\`/api/teacher/exams?teacher_id=\${user.id}\`).then(r=>r.json()).then(d=>setExams(Array.isArray(d)?d:[])).finally(() => setLoading(false));
+            };
+
+            const pushMode = (nextMode, nextEditId = null, options = {}) => {
+                setMode(nextMode);
+                setEditId(nextEditId);
+                if (options.statId !== undefined) setStatId(options.statId);
+                const params = new URLSearchParams(window.location.search);
+                if (nextMode === 'create' && nextEditId) params.set('examId', nextEditId);
+                else params.delete('examId');
+                const url = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}${window.location.hash}`;
+                window.history.pushState({ mode: nextMode, editId: nextEditId, statId: options.statId ?? statId }, '', url);
+            };
 
             const toggle = async (id, isActive) => { await fetch('/api/exam/toggle', {method:'POST', body:JSON.stringify({id, is_active:!isActive})}); loadExams(); };
             const del = async (id) => { if(!confirm("Delete?")) return; await fetch('/api/exam/delete', {method:'POST', body:JSON.stringify({id})}); loadExams(); };
 
-            if (mode === 'create') return <ExamEditor user={user} examId={editId} onCancel={() => setMode('list')} onFinish={() => { setMode('list'); loadExams(); addToast("Exam Saved!"); }} addToast={addToast} />;
-            if (mode === 'stats') return <DashboardLayout user={user} onLogout={onLogout} title="Analytics" activeTab={tab} onTabChange={setTab} action={<button onClick={()=>setMode('list')} className="text-gray-500 font-bold">← Back</button>}><ExamStats examId={statId} /></DashboardLayout>;
+            if (mode === 'create') return <ExamEditor user={user} examId={editId} onCancel={() => pushMode('list', null, { statId: null })} onFinish={() => { pushMode('list', null, { statId: null }); loadExams(); addToast("Exam Saved!"); }} addToast={addToast} />;
+            if (mode === 'stats') return <DashboardLayout user={user} onLogout={onLogout} title="Analytics" activeTab={tab} onTabChange={setTab} action={<button onClick={()=>pushMode('list', null, { statId: null })} className="text-gray-500 font-bold">← Back</button>}><ExamStats examId={statId} /></DashboardLayout>;
 
             return (
                 <DashboardLayout user={user} onLogout={onLogout} title={tab==='exams'?'My Exams':'Students'} activeTab={tab} onTabChange={setTab}
-                    action={tab === 'exams' && <button onClick={() => { setEditId(null); setMode('create'); }} className="bg-orange-500 text-white px-4 py-2 rounded-xl font-bold shadow-lg shadow-orange-200 btn-bounce flex items-center gap-2"><Icons.Plus /> <span className="hidden sm:inline">New Exam</span></button>}
+                    action={tab === 'exams' && <button onClick={() => { setEditId(null); pushMode('create'); }} className="bg-orange-500 text-white px-4 py-2 rounded-xl font-bold shadow-lg shadow-orange-200 btn-bounce flex items-center gap-2"><Icons.Plus /> <span className="hidden sm:inline">New Exam</span></button>}
                 >
-                    {tab === 'exams' && <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 anim-enter pb-20">{exams.map(e => (
+                    {tab === 'exams' && <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 anim-enter pb-20">{loading ? Array.from({ length: 6 }).map((_, idx) => (
+                        <div key={idx} className="bg-white p-5 rounded-3xl shadow-sm border border-orange-50 h-40 animate-pulse">
+                            <div className="h-4 bg-gray-100 rounded w-3/4 mb-4"></div>
+                            <div className="space-y-2">
+                                <div className="h-3 bg-gray-100 rounded"></div>
+                                <div className="h-3 bg-gray-100 rounded w-2/3"></div>
+                            </div>
+                            <div className="h-8 bg-gray-100 rounded mt-6"></div>
+                        </div>
+                    )) : exams.map(e=> (
                         <div key={e.id} className="bg-white p-5 rounded-3xl shadow-sm border border-orange-100 relative group overflow-hidden">
                             <div className={\`absolute top-0 left-0 w-2 h-full \${e.is_active ? 'bg-green-400' : 'bg-gray-300'}\`}></div>
                             <div className="pl-4">
                                 <div className="flex justify-between items-start mb-2"><h3 className="font-bold text-lg text-slate-800 line-clamp-1">{e.title}</h3><button onClick={()=>del(e.id)} className="text-gray-300 hover:text-red-500"><Icons.Trash/></button></div>
-                                <div className="flex justify-between items-center mt-4"><Toggle checked={!!e.is_active} onChange={()=>toggle(e.id, e.is_active)} /><div className="flex gap-2"><button onClick={() => { setEditId(e.id); setMode('create'); }} className="bg-orange-50 text-orange-600 p-2 rounded-xl"><Icons.Edit /></button><button onClick={() => { setStatId(e.id); setMode('stats'); }} className="bg-blue-50 text-blue-600 p-2 rounded-xl"><Icons.Chart /></button></div></div>
+                                <div className="flex justify-between items-center mt-4"><Toggle checked={!!e.is_active} onChange={()=>toggle(e.id, e.is_active)} /><div className="flex gap-2"><button onClick={() => { setEditId(e.id); pushMode('create', e.id); }} className="bg-orange-50 text-orange-600 p-2 rounded-xl"><Icons.Edit /></button><button onClick={() => pushMode('stats', null, { statId: e.id })} className="bg-blue-50 text-blue-600 p-2 rounded-xl"><Icons.Chart /></button></div></div>
                                 <button onClick={() => { navigator.clipboard.writeText(\`\${window.location.origin}/?exam=\${e.link_id}\`); addToast("Link Copied!"); }} className="w-full mt-4 bg-gray-50 text-gray-600 text-xs font-bold py-2 rounded-xl hover:bg-gray-100">Copy Link</button>
                             </div>
                         </div>
@@ -419,10 +473,17 @@ ${getHeadContent()}
             const [filterClass, setFilterClass] = useState('');
             const [filterSec, setFilterSec] = useState('');
             const [search, setSearch] = useState('');
+            const [loading, setLoading] = useState(true);
 
-            useEffect(() => { 
-                fetch('/api/students/list').then(r=>r.json()).then(d=>setList(Array.isArray(d)?d:[]));
-                fetch('/api/config/get').then(r=>r.json()).then(d => { if(Array.isArray(d)) setConfig(d); });
+            useEffect(() => {
+                setLoading(true);
+                Promise.all([
+                    fetch('/api/students/list').then(r=>r.json()),
+                    fetch('/api/config/get').then(r=>r.json())
+                ]).then(([students, cfg]) => {
+                    setList(Array.isArray(students)?students:[]);
+                    if(Array.isArray(cfg)) setConfig(cfg);
+                }).finally(() => setLoading(false));
             }, []);
 
             const classes = Array.isArray(config) ? [...new Set(config.filter(c=>c.type==='class').map(c=>c.value))] : [];
@@ -431,12 +492,20 @@ ${getHeadContent()}
             const filtered = list.filter(s => {
                 const sName = s.name || "";
                 const sId = s.school_id || "";
-                
+
                 if(filterClass && s.class !== filterClass) return false;
                 if(filterSec && s.section !== filterSec) return false;
                 if(search && !sName.toLowerCase().includes(search.toLowerCase()) && !sId.includes(search)) return false;
                 return true;
             });
+
+            const skeletonCards = Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="bg-white p-4 rounded-2xl border border-gray-100 animate-pulse">
+                    <div className="h-4 bg-gray-100 rounded w-1/3 mb-2"></div>
+                    <div className="h-3 bg-gray-100 rounded w-1/4 mb-1"></div>
+                    <div className="h-3 bg-gray-100 rounded w-1/5"></div>
+                </div>
+            ));
 
             return (
                 <div className="space-y-4 pb-20">
@@ -447,12 +516,50 @@ ${getHeadContent()}
                             <select value={filterSec} onChange={e=>setFilterSec(e.target.value)} className="bg-gray-50 p-3 rounded-xl font-bold text-sm outline-none"><option value="">All Sections</option>{sections.map(s=><option key={s} value={s}>{s}</option>)}</select>
                         </div>
                     </div>
-                    <div className="grid gap-3">
-                        {filtered.map(s=><div key={s.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
-                            <div><div className="font-bold">{s.name}</div><div className="text-xs text-gray-400">{s.school_id}</div><div className="text-xs font-bold text-indigo-500 mt-1">{s.class ? \`Class \${s.class}\` : 'No Class'} {s.section && \` - \${s.section}\`}</div></div>
-                            <div className="font-bold text-green-500">{Math.round(s.avg_score||0)}%</div>
-                        </div>)}
-                        {filtered.length === 0 && <div className="text-center text-gray-400 py-10">No students found</div>}
+                    <div className="grid gap-3 md:hidden">
+                        {loading ? skeletonCards : filtered.map(s=>(
+                            <div key={s.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
+                                <div>
+                                    <div className="font-bold">{s.name}</div>
+                                    <div className="text-xs text-gray-400">{s.school_id}</div>
+                                    <div className="text-xs font-bold text-indigo-500 mt-1">{s.class ? `Class ${s.class}` : 'No Class'} {s.section && ` - ${s.section}`}</div>
+                                </div>
+                                <div className="font-bold text-green-500">{Math.round(s.avg_score||0)}%</div>
+                            </div>
+                        ))}
+                        {!loading && filtered.length === 0 && <div className="text-center text-gray-400 py-10">No students found</div>}
+                    </div>
+                    <div className="hidden md:block bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full text-sm">
+                                <thead>
+                                    <tr className="text-left text-gray-400 font-bold uppercase text-xs">
+                                        <th className="pb-2">Name</th>
+                                        <th className="pb-2">School ID</th>
+                                        <th className="pb-2">Class</th>
+                                        <th className="pb-2 text-right">Avg Score</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {loading ? Array.from({ length: 5 }).map((_, i) => (
+                                        <tr key={i} className="animate-pulse">
+                                            <td className="py-3"><div className="h-4 bg-gray-100 rounded w-1/2"></div></td>
+                                            <td><div className="h-4 bg-gray-100 rounded w-2/3"></div></td>
+                                            <td><div className="h-4 bg-gray-100 rounded w-1/4"></div></td>
+                                            <td className="text-right"><div className="h-4 bg-gray-100 rounded w-1/5 ml-auto"></div></td>
+                                        </tr>
+                                    )) : filtered.map(s => (
+                                        <tr key={s.id} className="hover:bg-gray-50">
+                                            <td className="py-3 font-bold text-gray-800">{s.name}</td>
+                                            <td className="text-gray-500">{s.school_id}</td>
+                                            <td className="text-gray-500 font-bold">{s.class ? `Class ${s.class}` : 'No Class'} {s.section && ` - ${s.section}`}</td>
+                                            <td className="text-right font-bold text-green-600">{Math.round(s.avg_score||0)}%</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            {!loading && filtered.length === 0 && <div className="text-center text-gray-400 py-6">No students found</div>}
+                        </div>
                     </div>
                 </div>
             );
@@ -487,6 +594,13 @@ ${getHeadContent()}
                     setQs(data.questions.map(q => ({ ...q, choices: JSON.parse(q.choices) })));
                 });
             }, [examId]);
+
+            useEffect(() => {
+                const prevOverflow = document.body.style.overflow;
+                if (activeQ) document.body.style.overflow = 'hidden';
+                else document.body.style.overflow = prevOverflow || 'auto';
+                return () => { document.body.style.overflow = prevOverflow || 'auto'; };
+            }, [activeQ]);
 
             const saveQ = (q) => {
                 if (!q.text || !q.choices.some(c => c.isCorrect)) return addToast("Incomplete Question", 'error');
@@ -599,29 +713,55 @@ ${getHeadContent()}
 
         // 5. STUDENT EXAM APP (With Dropdowns & Validation)
         function StudentExamApp({ linkId }) {
-            const [mode, setMode] = useState('identify'); 
-            const [student, setStudent] = useState({ name: '', school_id: '', roll: '', class: '', section: '' }); 
-            const [exam, setExam] = useState(null); 
+            const [mode, setMode] = useState('identify');
+            const [student, setStudent] = useState({ name: '', school_id: '', roll: '', class: '', section: '' });
+            const [exam, setExam] = useState(null);
             const [config, setConfig] = useState({ classes: [], sections: [] });
-            
+            const [restored, setRestored] = useState(null);
+
             // Game State
-            const [qIdx, setQIdx] = useState(0); 
-            const [score, setScore] = useState(0); 
+            const [qIdx, setQIdx] = useState(0);
+            const [score, setScore] = useState(0);
             const [answers, setAnswers] = useState({});
             const [resultDetails, setResultDetails] = useState(null);
             const [examHistory, setExamHistory] = useState([]);
             const [qTime, setQTime] = useState(0);
             const [totalTime, setTotalTime] = useState(0);
+            const [submitting, setSubmitting] = useState(false);
+            const [checkingId, setCheckingId] = useState(false);
+            const [updatingProfile, setUpdatingProfile] = useState(false);
 
-            useEffect(() => { 
+            const storageKey = useMemo(() => `exam_state_${linkId}`, [linkId]);
+
+            useEffect(() => {
+                try {
+                    const saved = localStorage.getItem(storageKey);
+                    if (saved) setRestored(JSON.parse(saved));
+                } catch (e) {}
+            }, [storageKey]);
+
+            useEffect(() => {
                 fetch(\`/api/exam/get?link_id=\${linkId}\`).then(r=>r.json()).then(d => {
                     if(!d.exam?.is_active) return alert("Exam Closed");
                     setExam(d);
                     const classes = [...new Set(d.config.filter(c=>c.type==='class').map(c=>c.value))];
                     const sections = [...new Set(d.config.filter(c=>c.type==='section').map(c=>c.value))];
                     setConfig({ classes, sections });
-                }); 
+                });
             }, [linkId]);
+
+            useEffect(() => {
+                if (!exam || !restored || restored.examId !== exam.exam.id) return;
+                if (restored.student) setStudent(restored.student);
+                if (restored.mode) setMode(restored.mode);
+                if (typeof restored.qIdx === 'number') setQIdx(restored.qIdx);
+                if (restored.answers) setAnswers(restored.answers);
+                if (typeof restored.qTime === 'number') setQTime(restored.qTime);
+                if (typeof restored.totalTime === 'number') setTotalTime(restored.totalTime);
+                if (restored.score) setScore(restored.score);
+                if (restored.resultDetails) setResultDetails(restored.resultDetails);
+                if (restored.examHistory) setExamHistory(restored.examHistory);
+            }, [exam, restored]);
 
             // Timer Tick
             useEffect(() => {
@@ -648,31 +788,48 @@ ${getHeadContent()}
             };
 
             const finish = async () => {
-                let fs = 0;
-                const det = exam.questions.map(q => { 
-                    const s = answers[q.id]; 
-                    const choices = JSON.parse(q.choices);
-                    const correctChoice = choices.find(x => x.isCorrect);
-                    const c = correctChoice?.id; 
-                    const isCorrect = s === c;
-                    if(isCorrect) fs++; 
-                    return { qId: q.id, qText: q.text, choices: choices, selected: s, selectedText: choices.find(x => x.id === s)?.text || "Skipped", correct: c, correctText: correctChoice?.text, isCorrect }; 
-                });
-                
-                setScore(fs); setResultDetails(det);
-                if((fs/exam.questions.length) > 0.6) confetti();
-                await fetch('/api/submit', { method: 'POST', body: JSON.stringify({ link_id: linkId, student, score: fs, total: exam.questions.length, answers: det }) });
-                const histRes = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: student.school_id }) }).then(r => r.json());
-                if (histRes.found) setExamHistory(histRes.history.filter(h => h.exam_id === exam.exam.id));
-                setMode('summary');
+                if (submitting) return;
+                setSubmitting(true);
+                try {
+                    let fs = 0;
+                    const det = exam.questions.map(q => {
+                        const s = answers[q.id];
+                        const choices = JSON.parse(q.choices);
+                        const correctChoice = choices.find(x => x.isCorrect);
+                        const c = correctChoice?.id;
+                        const isCorrect = s === c;
+                        if(isCorrect) fs++;
+                        return { qId: q.id, qText: q.text, choices: choices, selected: s, selectedText: choices.find(x => x.id === s)?.text || "Skipped", correct: c, correctText: correctChoice?.text, isCorrect };
+                    });
+
+                    setScore(fs); setResultDetails(det);
+                    if((fs/exam.questions.length) > 0.6) confetti();
+                    await fetch('/api/submit', { method: 'POST', body: JSON.stringify({ link_id: linkId, student, score: fs, total: exam.questions.length, answers: det }) });
+                    const histRes = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: student.school_id }) }).then(r => r.json());
+                    if (histRes.found) setExamHistory(histRes.history.filter(h => h.exam_id === exam.exam.id));
+                    setMode('summary');
+                } finally {
+                    setSubmitting(false);
+                }
             };
 
             const startGame = () => {
-                 setMode('game'); 
+                 setMode('game');
+                 setAnswers({});
+                 setQIdx(0);
+                 setScore(0);
+                 setResultDetails(null);
+                 setExamHistory([]);
                  const settings = JSON.parse(exam.exam.settings || '{}');
-                 if(settings.timerMode==='total') setTotalTime((settings.timerValue||10)*60); 
+                 if(settings.timerMode==='total') setTotalTime((settings.timerValue||10)*60);
                  if(settings.timerMode==='question') setQTime(settings.timerValue||30);
             };
+
+            useEffect(() => {
+                if (!exam) return;
+                const payload = { examId: exam.exam.id, mode, student, qIdx, answers, qTime, totalTime, score, resultDetails, examHistory };
+                localStorage.setItem(storageKey, JSON.stringify(payload));
+            }, [exam, mode, student, qIdx, answers, qTime, totalTime, score, resultDetails, examHistory, storageKey]);
 
             if(!exam) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400">Loading Exam...</div>;
             const settings = JSON.parse(exam.exam.settings || '{}');
@@ -682,20 +839,27 @@ ${getHeadContent()}
                     <div className="bg-white w-full max-w-sm p-8 rounded-3xl text-center anim-pop shadow-2xl">
                         <h1 className="text-2xl font-bold mb-4">Join Class</h1>
                         <input className="w-full bg-gray-100 p-4 rounded-xl font-bold mb-3 outline-none" placeholder="School ID" value={student.school_id} onChange={e=>setStudent({...student, school_id:e.target.value})} />
-                        <button onClick={async()=>{
-                            if(!student.school_id) return alert("Enter ID");
-                            const r = await fetch('/api/student/identify', {method:'POST', body:JSON.stringify({school_id:student.school_id})}).then(x=>x.json());
-                            if(r.found) { 
-                                // Check if profile incomplete
-                                if(!r.student.class || !r.student.section) {
-                                    setStudent({...r.student, ...student});
-                                    setMode('update_profile'); // Force update
-                                } else {
-                                    setStudent({...r.student, ...student}); 
-                                    startGame(); 
-                                }
-                            } else setMode('register');
-                        }} className="w-full bg-black text-white p-4 rounded-xl font-bold">Next</button>
+                        <button
+                            onClick={async()=>{
+                                if(checkingId) return;
+                                if(!student.school_id) return alert("Enter ID");
+                                setCheckingId(true);
+                                const r = await fetch('/api/student/identify', {method:'POST', body:JSON.stringify({school_id:student.school_id})}).then(x=>x.json());
+                                if(r.found) {
+                                    // Check if profile incomplete
+                                    if(!r.student.class || !r.student.section) {
+                                        setStudent({...r.student, ...student});
+                                        setMode('update_profile'); // Force update
+                                    } else {
+                                        setStudent({...r.student, ...student});
+                                        startGame();
+                                    }
+                                } else setMode('register');
+                                setCheckingId(false);
+                            }}
+                            className="w-full bg-black text-white p-4 rounded-xl font-bold disabled:opacity-60"
+                            disabled={checkingId}
+                        >{checkingId ? 'Checking...' : 'Next'}</button>
                     </div>
                 </div>
             );
@@ -724,10 +888,13 @@ ${getHeadContent()}
                             </select>
                         </div>
                         
-                        <button onClick={()=>{ 
+                        <button onClick={()=>{
+                            if(updatingProfile) return;
                             if(!student.class || !student.section || (mode === 'register' && (!student.name || !student.roll))) return alert("Please fill all fields");
-                            startGame(); 
-                        }} className="w-full bg-indigo-600 text-white p-3 rounded-xl font-bold">Start Exam</button>
+                            setUpdatingProfile(true);
+                            startGame();
+                            setUpdatingProfile(false);
+                        }} className="w-full bg-indigo-600 text-white p-3 rounded-xl font-bold disabled:opacity-60" disabled={updatingProfile}>{updatingProfile ? 'Preparing...' : 'Start Exam'}</button>
                     </div>
                 </div>
             );
@@ -742,7 +909,13 @@ ${getHeadContent()}
                     </div>
                     <div className="w-full max-w-md flex-1 flex flex-col justify-center">
                         <div className="bg-white text-slate-900 p-6 rounded-3xl mb-6 text-center shadow-2xl">
-                            {exam.questions[qIdx].image_key && <img src={\`/img/\${exam.questions[qIdx].image_key}\`} className="h-40 mx-auto object-contain mb-4" />}
+                            {exam.questions[qIdx].image_key && (
+                                <div className="w-full mb-4">
+                                    <div className="w-full aspect-video bg-slate-100 rounded-2xl flex items-center justify-center overflow-hidden">
+                                        <img src={\`/img/\${exam.questions[qIdx].image_key}\`} className="h-full w-full object-contain" />
+                                    </div>
+                                </div>
+                            )}
                             <h2 className="text-xl font-bold">{exam.questions[qIdx].text}</h2>
                         </div>
                         <div className="grid grid-cols-1 gap-3">
@@ -752,7 +925,7 @@ ${getHeadContent()}
                                 </button>
                             ))}
                         </div>
-                         {settings.timerMode === 'total' && <div className="mt-8 flex justify-end"><button onClick={next} className="px-6 py-2 bg-white text-black rounded-lg font-bold">Next</button></div>}
+                         {settings.timerMode === 'total' && <div className="mt-8 flex justify-end"><button onClick={next} disabled={submitting} className="px-6 py-2 bg-white text-black rounded-lg font-bold disabled:opacity-60">{submitting && <span className="inline-flex items-center gap-2"><Icons.Loading /> Submitting...</span>}{!submitting && (qIdx === exam.questions.length - 1 ? 'Submit' : 'Next')}</button></div>}
                     </div>
                 </div>
             );
