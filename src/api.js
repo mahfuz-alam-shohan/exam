@@ -253,6 +253,27 @@ async function handleAuthLogin(request, env) {
   return Response.json({ success: true, token, user: payload });
 }
 
+async function handleAuthChangePassword(request, env) {
+  const currentUser = await ensureAuth(request, env);
+  const { old_password, new_password } = await readJson(request);
+
+  if (!old_password || !new_password) {
+    return Response.json({ error: 'Missing password fields' }, { status: 400 });
+  }
+
+  const user = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(currentUser.id).first();
+  if (!user) return Response.json({ error: 'User not found' }, { status: 404 });
+
+  const oldHashed = await hashPassword(old_password);
+  const matchesOld = user.password === old_password || user.password === oldHashed;
+  if (!matchesOld) return Response.json({ error: 'Old password incorrect' }, { status: 400 });
+
+  const newHashed = await hashPassword(new_password);
+  await env.DB.prepare('UPDATE users SET password = ? WHERE id = ?').bind(newHashed, currentUser.id).run();
+
+  return Response.json({ success: true });
+}
+
 async function handleAdminTeachersCreate(request, env) {
   const currentUser = await ensureAuth(request, env);
   if (currentUser.role !== 'super_admin') {
@@ -299,6 +320,28 @@ async function handleAdminStudentDelete(request, env) {
   await env.DB.prepare('DELETE FROM students WHERE id = ?').bind(id).run();
   await env.DB.prepare('DELETE FROM attempts WHERE student_db_id = ?').bind(id).run();
   return Response.json({ success: true });
+}
+
+async function handleStudentUpdate(request, env) {
+  const currentUser = await ensureAuth(request, env);
+  if (currentUser.role !== 'teacher' && currentUser.role !== 'super_admin') {
+    throw new Response('Unauthorized', { status: 401 });
+  }
+
+  const { id, name, school_id, class: className, section } = await readJson(request);
+
+  if (!id || !name || !school_id) {
+    return Response.json({ error: 'Missing fields' }, { status: 400 });
+  }
+
+  try {
+    await env.DB.prepare('UPDATE students SET name = ?, school_id = ?, class = ?, section = ? WHERE id = ?')
+      .bind(name, school_id, className || null, section || null, id)
+      .run();
+    return Response.json({ success: true });
+  } catch (e) {
+    return Response.json({ error: e.message }, { status: 400 });
+  }
 }
 
 async function handleExamSave(request, env) {
@@ -577,10 +620,12 @@ export async function handleApi(request, env, path, url) {
     'POST:/api/config/delete': handleConfigDelete,
     'POST:/api/auth/setup-admin': handleAuthSetupAdmin,
     'POST:/api/auth/login': handleAuthLogin,
+    'POST:/api/auth/change-password': handleAuthChangePassword,
     'POST:/api/admin/teachers': handleAdminTeachersCreate,
     'GET:/api/admin/teachers': handleAdminTeachersList,
     'POST:/api/admin/teacher/delete': handleAdminTeacherDelete,
     'POST:/api/admin/student/delete': handleAdminStudentDelete,
+    'POST:/api/student/update': handleStudentUpdate,
     'POST:/api/exam/save': handleExamSave,
     'POST:/api/exam/delete': handleExamDelete,
     'POST:/api/exam/toggle': handleExamToggle,
