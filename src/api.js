@@ -9,6 +9,14 @@ async function readJson(request) {
   }
 }
 
+async function hashPassword(password) {
+  const data = new TextEncoder().encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 export async function handleApi(request, env, path, url) {
   const method = request.method;
 
@@ -97,8 +105,9 @@ export async function handleApi(request, env, path, url) {
       if (!username || !password || !name) {
         return Response.json({ error: "Missing credentials" }, { status: 400 });
       }
+      const hashed = await hashPassword(password);
       await env.DB.prepare("INSERT INTO users (username, password, name, role) VALUES (?, ?, ?, 'super_admin')")
-        .bind(username, password, name).run();
+        .bind(username, hashed, name).run();
       return Response.json({ success: true });
     }
 
@@ -107,10 +116,25 @@ export async function handleApi(request, env, path, url) {
       if (!username || !password) {
         return Response.json({ error: "Missing credentials" }, { status: 400 });
       }
-      const user = await env.DB.prepare("SELECT * FROM users WHERE username = ? AND password = ?")
-        .bind(username, password).first();
+      const hashed = await hashPassword(password);
+      const user = await env.DB.prepare("SELECT * FROM users WHERE username = ?")
+        .bind(username).first();
 
       if (!user) return Response.json({ error: "Invalid credentials" }, { status: 401 });
+
+      const matchesHash = user.password === hashed;
+      const matchesPlain = user.password === password;
+
+      if (!matchesHash && !matchesPlain) {
+        return Response.json({ error: "Invalid credentials" }, { status: 401 });
+      }
+
+      if (matchesPlain && !matchesHash) {
+        await env.DB.prepare("UPDATE users SET password = ? WHERE id = ?")
+          .bind(hashed, user.id)
+          .run();
+        user.password = hashed;
+      }
       return Response.json({ success: true, user });
     }
 
@@ -120,8 +144,9 @@ export async function handleApi(request, env, path, url) {
         return Response.json({ error: 'Missing fields' }, { status: 400 });
       }
       try {
+        const hashed = await hashPassword(password);
         await env.DB.prepare("INSERT INTO users (username, password, name, role) VALUES (?, ?, ?, 'teacher')")
-          .bind(username, password, name).run();
+          .bind(username, hashed, name).run();
         return Response.json({ success: true });
       } catch (e) {
         return Response.json({ error: "Username likely taken" }, { status: 400 });

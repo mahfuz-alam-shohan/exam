@@ -34,7 +34,7 @@ function buildHtml(initialRoute = 'landing') {
 ${getHeadContent()}
 <body class="text-slate-800 antialiased selection:bg-orange-200">
     <div id="root"></div>
-    <script>window.__INITIAL_ROUTE__ = "${initialRoute}";</script>
+    <script>window.__INITIAL_ROUTE__ = ${JSON.stringify(initialRoute)};</script>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo, Component } = React;
