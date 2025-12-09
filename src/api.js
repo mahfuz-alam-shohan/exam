@@ -91,6 +91,12 @@ async function hashPassword(password) {
     .join('');
 }
 
+function getPage(url) {
+  const pageParam = parseInt(url.searchParams.get('page') || '1', 10);
+  if (Number.isNaN(pageParam) || pageParam < 1) return 1;
+  return pageParam;
+}
+
 export async function handleApi(request, env, path, url) {
   const method = request.method;
 
@@ -182,6 +188,15 @@ export async function handleApi(request, env, path, url) {
       const { username, password, name } = await readJson(request);
       if (!username || !password || !name) {
         return Response.json({ error: "Missing credentials" }, { status: 400 });
+      }
+      if (username.length > 50) {
+        return Response.json({ error: "Username too long" }, { status: 400 });
+      }
+      if (password.length > 100) {
+        return Response.json({ error: "Password too long" }, { status: 400 });
+      }
+      if (name.length > 100) {
+        return Response.json({ error: "Name too long" }, { status: 400 });
       }
       const hashed = await hashPassword(password);
       await env.DB.prepare("INSERT INTO users (username, password, name, role) VALUES (?, ?, ?, 'super_admin')")
@@ -276,17 +291,24 @@ export async function handleApi(request, env, path, url) {
       if (!title || !teacher_id) {
         return Response.json({ error: 'Missing exam data' }, { status: 400 });
       }
+      if (typeof title !== 'string' || title.length > 200) {
+        return Response.json({ error: 'Title too long' }, { status: 400 });
+      }
+      const settingsString = JSON.stringify(settings || {});
+      if (settingsString.length > 5000) {
+        return Response.json({ error: 'Settings too large' }, { status: 400 });
+      }
       let examId = id;
       let link_id = null;
 
       if (examId) {
         await env.DB.prepare("UPDATE exams SET title = ?, settings = ? WHERE id = ?")
-          .bind(title, JSON.stringify(settings), examId).run();
+          .bind(title, settingsString, examId).run();
         await env.DB.prepare("DELETE FROM questions WHERE exam_id = ?").bind(examId).run();
       } else {
         link_id = crypto.randomUUID();
         const res = await env.DB.prepare("INSERT INTO exams (link_id, title, teacher_id, settings) VALUES (?, ?, ?, ?)")
-          .bind(link_id, title, teacher_id, JSON.stringify(settings)).run();
+          .bind(link_id, title, teacher_id, settingsString).run();
         examId = res.meta.last_row_id;
       }
       return Response.json({ success: true, id: examId, link_id });
@@ -346,8 +368,11 @@ export async function handleApi(request, env, path, url) {
 
     if (path === '/api/teacher/exams' && method === 'GET') {
       const teacherId = url.searchParams.get('teacher_id');
+      const page = getPage(url);
+      const offset = (page - 1) * 20;
       try {
-        const exams = await env.DB.prepare("SELECT * FROM exams WHERE teacher_id = ? ORDER BY created_at DESC").bind(teacherId).all();
+        const exams = await env.DB.prepare("SELECT * FROM exams WHERE teacher_id = ? ORDER BY created_at DESC LIMIT 20 OFFSET ?")
+          .bind(teacherId, offset).all();
         return Response.json(exams.results);
       } catch (e) {
         return Response.json({ error: e.message }, { status: 500 });
@@ -433,13 +458,24 @@ export async function handleApi(request, env, path, url) {
       let studentRecord = await env.DB.prepare("SELECT id FROM students WHERE school_id = ?").bind(student.school_id).first();
 
       if (!studentRecord) {
-        const res = await env.DB.prepare("INSERT INTO students (school_id, name, roll, class, section) VALUES (?, ?, ?, ?, ?)")
-          .bind(student.school_id, student.name, student.roll, student.class || null, student.section || null).run();
-        studentRecord = { id: res.meta.last_row_id };
-      } else {
-        await env.DB.prepare("UPDATE students SET name = ?, roll = ?, class = ?, section = ? WHERE id = ?")
-          .bind(student.name, student.roll, student.class, student.section, studentRecord.id).run();
+        try {
+          const res = await env.DB.prepare("INSERT INTO students (school_id, name, roll, class, section) VALUES (?, ?, ?, ?, ?)")
+            .bind(student.school_id, student.name, student.roll, student.class || null, student.section || null).run();
+          studentRecord = { id: res.meta.last_row_id };
+        } catch (e) {
+          studentRecord = await env.DB.prepare("SELECT id FROM students WHERE school_id = ?").bind(student.school_id).first();
+          if (!studentRecord) throw e;
+        }
       }
+
+      await env.DB.prepare("UPDATE students SET name = ?, roll = ?, class = ?, section = ? WHERE id = ?")
+        .bind(
+          student.name,
+          student.roll,
+          student.class || null,
+          student.section || null,
+          studentRecord.id
+        ).run();
 
       await env.DB.prepare("INSERT INTO attempts (exam_id, student_db_id, score, total, details) VALUES (?, ?, ?, ?, ?)")
         .bind(exam.id, studentRecord.id, score, total, JSON.stringify(answers)).run();
@@ -465,6 +501,8 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/students/list' && method === 'GET') {
+      const page = getPage(url);
+      const offset = (page - 1) * 20;
       try {
         const students = await env.DB.prepare(`
                 SELECT s.*, COUNT(a.id) as exams_count, AVG(CAST(a.score AS FLOAT)/CAST(a.total AS FLOAT))*100 as avg_score
@@ -472,7 +510,8 @@ export async function handleApi(request, env, path, url) {
                 LEFT JOIN attempts a ON s.id = a.student_db_id
                 GROUP BY s.id
                 ORDER BY s.created_at DESC
-            `).all();
+                LIMIT 20 OFFSET ?
+            `).bind(offset).all();
         return Response.json(students.results);
       } catch (e) {
         return Response.json([]);
