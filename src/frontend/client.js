@@ -96,7 +96,13 @@ export const appClientScript = `
                     <h3 className="font-bold text-xl mb-4">{viewDetail.name}'s Answers</h3>
                     <div className="space-y-4">
                         {JSON.parse(viewDetail.details || '[]').map((d,i) => (
-                            <div key={i} className={`p-4 rounded-lg border ${d.isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                            <div
+                                key={i}
+                                className={[
+                                    'p-4 rounded-lg border',
+                                    d.isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200',
+                                ].join(' ')}
+                            >
                                 <div className="font-bold text-gray-800 mb-1">Q{i+1}: {d.qText}</div>
                                 <div className="text-sm">
                                     <span className="font-bold">Student:</span> {d.selectedText} 
@@ -483,7 +489,13 @@ export const appClientScript = `
                                 <div className="space-y-3">
                                     {activeQ.choices.map((c, i) => (
                                         <div key={c.id} className="flex items-center gap-3">
-                                            <div onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => ({ ...x, isCorrect: x.id === c.id })) })} className={`w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition \${c.isCorrect ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300'}`}>
+                                    <div
+                                        onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => ({ ...x, isCorrect: x.id === c.id })) })}
+                                        className={[
+                                            'w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition',
+                                            c.isCorrect ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300',
+                                        ].join(' ')}
+                                    >
                                                 {c.isCorrect && <span className="font-bold text-sm">✓</span>}
                                             </div>
                                             <input value={c.text} onChange={e => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => x.id === c.id ? { ...x, text: e.target.value } : x) })} className="flex-1 bg-gray-50 p-3 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-orange-200" placeholder={`Option \${i + 1}`} />
@@ -570,7 +582,12 @@ export const appClientScript = `
                                         <h4 className="font-bold text-slate-800">{h.title}</h4>
                                         <p className="text-xs text-gray-400 font-bold">{new Date(h.timestamp).toLocaleDateString()}</p>
                                     </div>
-                                    <div className={`text-lg font-black \${(h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400'}`}>
+                                <div
+                                    className={[
+                                        'text-lg font-black',
+                                        (h.score / h.total) > 0.7 ? 'text-green-500' : 'text-orange-400',
+                                    ].join(' ')}
+                                >
                                         {h.score}/{h.total}
                                     </div>
                                 </div>
@@ -694,7 +711,14 @@ export const appClientScript = `
                 <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-6">
                     <div className="w-full max-w-md flex justify-between items-center mb-8">
                         <div className="font-bold text-slate-500 uppercase text-xs tracking-widest">Question {qIdx+1}/{exam.questions.length}</div>
-                        <div className={`text-xl font-mono font-bold \${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}`}>
+                        <div
+                            className={[
+                                'text-xl font-mono font-bold',
+                                (settings.timerMode === 'question' ? qTime : totalTime) < 10
+                                    ? 'text-red-500 animate-pulse'
+                                    : 'text-green-400',
+                            ].join(' ')}
+                        >
                             {settings.timerMode === 'question' ? qTime : Math.floor(totalTime/60) + ':' + (totalTime%60).toString().padStart(2,'0')}
                         </div>
                     </div>
@@ -705,7 +729,14 @@ export const appClientScript = `
                         </div>
                         <div className="grid grid-cols-1 gap-3">
                             {JSON.parse(exam.questions[qIdx].choices).map(c => (
-                                <button key={c.id} onClick={()=>{ setAnswers({...answers, [exam.questions[qIdx].id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }} className={`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 \${answers[exam.questions[qIdx].id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}`}>
+                                <button
+                                    key={c.id}
+                                    onClick={()=>{ setAnswers({...answers, [exam.questions[qIdx].id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }}
+                                    className={[
+                                        'p-5 rounded-2xl font-bold text-left transition transform active:scale-95',
+                                        answers[exam.questions[qIdx].id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300',
+                                    ].join(' ')}
+                                >
                                     {c.text}
                                 </button>
                             ))}
@@ -751,7 +782,13 @@ export const appClientScript = `
                         <div className="space-y-4">
                             <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
                             {resultDetails.map((q, i) => (
-                                <div key={i} className={`p-6 rounded-2xl border \${q.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}`}>
+                                <div
+                                    key={i}
+                                    className={[
+                                        'p-6 rounded-2xl border',
+                                        q.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30',
+                                    ].join(' ')}
+                                >
                                     <div className="font-bold text-lg mb-3">Q{i+1}. {q.qText}</div>
                                     <div className="space-y-2">
                                         {q.choices.map(c => {
@@ -763,7 +800,13 @@ export const appClientScript = `
                                             else if (isSelected && !q.isCorrect) style = "bg-red-500 text-white border-red-500";
                                             
                                             return (
-                                                <div key={c.id} className={`p-3 rounded-xl border flex justify-between items-center \${style}`}>
+                                                <div
+                                                    key={c.id}
+                                                    className={[
+                                                        'p-3 rounded-xl border flex justify-between items-center',
+                                                        style,
+                                                    ].join(' ')}
+                                                >
                                                     <span className="font-bold">{c.text}</span>
                                                     {isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">You</span>}
                                                     {isCorrectChoice && !isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">Correct</span>}
