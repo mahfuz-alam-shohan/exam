@@ -354,6 +354,10 @@ export async function handleApi(request, env, path, url) {
 
       let image_key = null;
 
+      if (image && image.size > 2 * 1024 * 1024) {
+        return Response.json({ error: 'Image exceeds 2MB limit' }, { status: 400 });
+      }
+
       if (image && image.size > 0) {
         image_key = crypto.randomUUID();
         await env.BUCKET.put(image_key, image);
