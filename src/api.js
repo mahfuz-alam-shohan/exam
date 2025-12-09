@@ -9,6 +9,80 @@ async function readJson(request) {
   }
 }
 
+function textToUint8Array(text) {
+  return new TextEncoder().encode(text);
+}
+
+function toBase64Url(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+function fromBase64Url(base64url) {
+  const padded = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  const base64 = padded + '='.repeat((4 - (padded.length % 4)) % 4);
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+async function getSigningKey(secret) {
+  return crypto.subtle.importKey(
+    'raw',
+    textToUint8Array(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify']
+  );
+}
+
+async function signToken(payload, env) {
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const encodedHeader = toBase64Url(textToUint8Array(JSON.stringify(header)));
+  const encodedPayload = toBase64Url(textToUint8Array(JSON.stringify(payload)));
+  const data = `${encodedHeader}.${encodedPayload}`;
+  const key = await getSigningKey(env.JWT_SECRET);
+  const signature = await crypto.subtle.sign('HMAC', key, textToUint8Array(data));
+  const encodedSignature = toBase64Url(signature);
+  return `${data}.${encodedSignature}`;
+}
+
+async function verifyUser(request, env) {
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+
+  const token = authHeader.slice(7).trim();
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+
+  const [encodedHeader, encodedPayload, encodedSignature] = parts;
+  const data = `${encodedHeader}.${encodedPayload}`;
+
+  try {
+    const key = await getSigningKey(env.JWT_SECRET);
+    const isValid = await crypto.subtle.verify(
+      'HMAC',
+      key,
+      fromBase64Url(encodedSignature),
+      textToUint8Array(data)
+    );
+
+    if (!isValid) return null;
+
+    const payloadJson = new TextDecoder().decode(fromBase64Url(encodedPayload));
+    return JSON.parse(payloadJson);
+  } catch (e) {
+    return null;
+  }
+}
+
 async function hashPassword(password) {
   const data = new TextEncoder().encode(password);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
@@ -52,9 +126,9 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/system/reset' && method === 'POST') {
-      const userRole = request.headers.get('x-user-role');
-      if (userRole !== 'super_admin') {
-        return new Response("Unauthorized", { status: 403 });
+      const user = await verifyUser(request, env);
+      if (!user || user.role !== 'super_admin') {
+        return new Response("Unauthorized", { status: 401 });
       }
       try {
         await env.DB.batch([
@@ -139,10 +213,17 @@ export async function handleApi(request, env, path, url) {
           .run();
         user.password = hashed;
       }
-      return Response.json({ success: true, user });
+
+      const payload = { id: user.id, username: user.username, role: user.role, name: user.name };
+      const token = await signToken(payload, env);
+      return Response.json({ success: true, token, user: payload });
     }
 
     if (path === '/api/admin/teachers' && method === 'POST') {
+      const currentUser = await verifyUser(request, env);
+      if (!currentUser || currentUser.role !== 'super_admin') {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const { username, password, name } = await readJson(request);
       if (!username || !password || !name) {
         return Response.json({ error: 'Missing fields' }, { status: 400 });
@@ -163,6 +244,10 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/admin/teacher/delete' && method === 'POST') {
+      const currentUser = await verifyUser(request, env);
+      if (!currentUser || currentUser.role !== 'super_admin') {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const { id } = await readJson(request);
       if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
       await env.DB.prepare("DELETE FROM users WHERE id = ? AND role = 'teacher'").bind(id).run();
@@ -170,6 +255,10 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/admin/student/delete' && method === 'POST') {
+      const currentUser = await verifyUser(request, env);
+      if (!currentUser || currentUser.role !== 'super_admin') {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const { id } = await readJson(request);
       if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
       await env.DB.prepare("DELETE FROM students WHERE id = ?").bind(id).run();
@@ -179,6 +268,10 @@ export async function handleApi(request, env, path, url) {
 
     // 4. EXAM MANAGEMENT
     if (path === '/api/exam/save' && method === 'POST') {
+      const user = await verifyUser(request, env);
+      if (!user) {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const { id, title, teacher_id, settings } = await readJson(request);
       if (!title || !teacher_id) {
         return Response.json({ error: 'Missing exam data' }, { status: 400 });
@@ -200,6 +293,10 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/exam/delete' && method === 'POST') {
+      const user = await verifyUser(request, env);
+      if (!user) {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const { id } = await readJson(request);
       if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
       await env.DB.batch([
@@ -211,6 +308,10 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/exam/toggle' && method === 'POST') {
+      const user = await verifyUser(request, env);
+      if (!user) {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const { id, is_active } = await readJson(request);
       if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
       await env.DB.prepare("UPDATE exams SET is_active = ? WHERE id = ?").bind(is_active ? 1 : 0, id).run();
@@ -218,6 +319,10 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/question/add' && method === 'POST') {
+      const user = await verifyUser(request, env);
+      if (!user) {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const formData = await request.formData();
       const exam_id = formData.get('exam_id');
       const text = formData.get('text');
@@ -374,7 +479,7 @@ export async function handleApi(request, env, path, url) {
       }
     }
   } catch (err) {
-    return Response.json({ error: err.message }, { status: 500 });
+    return Response.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 
   return new Response("Not Found", { status: 404 });
