@@ -2,7 +2,7 @@
  * Cloudflare Worker - My Class (SaaS Masterclass)
  * - Branding: "My Class" (Playful, Kiddy, Mobile-First)
  * - Features: Persisted Session, Hash Routing, Mobile Bottom Nav, Deep Analytics, JSON Import
- * - Fixes: Admin Dashboard (Teachers/Students management), Image Previews, Loading States (Double-tap fix)
+ * - New: Class/Section Management, Student Filtering, Profile Completion, Robust Image Handling
  */
 
 export default {
@@ -56,11 +56,17 @@ async function handleApi(request, env, path, url) {
       try {
         await env.DB.batch([
           env.DB.prepare("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT, name TEXT, role TEXT DEFAULT 'teacher', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
-          env.DB.prepare("CREATE TABLE IF NOT EXISTS students (id INTEGER PRIMARY KEY AUTOINCREMENT, school_id TEXT UNIQUE, name TEXT, roll TEXT, extra_info TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
+          env.DB.prepare("CREATE TABLE IF NOT EXISTS students (id INTEGER PRIMARY KEY AUTOINCREMENT, school_id TEXT UNIQUE, name TEXT, roll TEXT, class TEXT, section TEXT, extra_info TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
+          env.DB.prepare("CREATE TABLE IF NOT EXISTS school_config (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT)"), // type: 'class' | 'section'
           env.DB.prepare("CREATE TABLE IF NOT EXISTS exams (id INTEGER PRIMARY KEY AUTOINCREMENT, link_id TEXT UNIQUE, title TEXT, teacher_id INTEGER, settings TEXT, is_active BOOLEAN DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
           env.DB.prepare("CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER, text TEXT, image_key TEXT, choices TEXT)"),
           env.DB.prepare("CREATE TABLE IF NOT EXISTS attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER, student_db_id INTEGER, score INTEGER, total INTEGER, details TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(student_db_id) REFERENCES students(id))")
         ]);
+        
+        // Migration for existing tables if needed (simplistic approach for single-file)
+        try { await env.DB.prepare("ALTER TABLE students ADD COLUMN class TEXT").run(); } catch(e) {}
+        try { await env.DB.prepare("ALTER TABLE students ADD COLUMN section TEXT").run(); } catch(e) {}
+
         return Response.json({ success: true });
       } catch (err) {
         return Response.json({ error: "DB Init Error: " + err.message }, { status: 500 });
@@ -74,6 +80,7 @@ async function handleApi(request, env, path, url) {
                 env.DB.prepare("DELETE FROM exams"),
                 env.DB.prepare("DELETE FROM questions"),
                 env.DB.prepare("DELETE FROM attempts"),
+                env.DB.prepare("DELETE FROM school_config"),
             ]);
             return Response.json({ success: true });
         } catch(e) {
@@ -81,7 +88,25 @@ async function handleApi(request, env, path, url) {
         }
     }
 
-    // 2. AUTH & USER MANAGEMENT
+    // 2. CONFIG (Classes/Sections)
+    if (path === '/api/config/get' && method === 'GET') {
+        const data = await env.DB.prepare("SELECT * FROM school_config ORDER BY value ASC").all();
+        return Response.json(data.results);
+    }
+
+    if (path === '/api/config/add' && method === 'POST') {
+        const { type, value } = await request.json();
+        await env.DB.prepare("INSERT INTO school_config (type, value) VALUES (?, ?)").bind(type, value).run();
+        return Response.json({ success: true });
+    }
+
+    if (path === '/api/config/delete' && method === 'POST') {
+        const { id } = await request.json();
+        await env.DB.prepare("DELETE FROM school_config WHERE id = ?").bind(id).run();
+        return Response.json({ success: true });
+    }
+
+    // 3. AUTH & USER MANAGEMENT
     if (path === '/api/auth/setup-admin' && method === 'POST') {
       let count = 0;
       try { count = await env.DB.prepare("SELECT COUNT(*) as count FROM users").first('count'); } 
@@ -133,7 +158,7 @@ async function handleApi(request, env, path, url) {
         return Response.json({ success: true });
     }
 
-    // 3. EXAM MANAGEMENT
+    // 4. EXAM MANAGEMENT
     if (path === '/api/exam/save' && method === 'POST') {
       const { id, title, teacher_id, settings } = await request.json();
       let examId = id;
@@ -174,13 +199,20 @@ async function handleApi(request, env, path, url) {
       const text = formData.get('text');
       const choices = formData.get('choices');
       const image = formData.get('image'); 
+      const existing_image_key = formData.get('existing_image_key');
 
-      let image_key = formData.get('existing_image_key'); 
+      let image_key = null;
       
+      // If a new file is uploaded, use it
       if (image && image.size > 0) {
         image_key = crypto.randomUUID();
         await env.BUCKET.put(image_key, image);
+      } 
+      // If no new file, but we have an existing key, keep it
+      else if (existing_image_key && existing_image_key !== 'null') {
+        image_key = existing_image_key;
       }
+      // If both are null/missing, image_key remains null (deletion)
 
       await env.DB.prepare("INSERT INTO questions (exam_id, text, image_key, choices) VALUES (?, ?, ?, ?)")
         .bind(exam_id, text, image_key, choices).run();
@@ -204,7 +236,7 @@ async function handleApi(request, env, path, url) {
         return Response.json({ exam, questions: questions.results });
     }
 
-    // 4. STUDENT PORTAL
+    // 5. STUDENT PORTAL
     if (path === '/api/student/portal-history' && method === 'POST') {
         const { school_id } = await request.json();
         const student = await env.DB.prepare("SELECT * FROM students WHERE school_id = ?").bind(school_id).first();
@@ -236,14 +268,16 @@ async function handleApi(request, env, path, url) {
         return Response.json({ found: false });
     }
 
-    // 5. EXAM DATA
+    // 6. EXAM DATA
     if (path === '/api/exam/get' && method === 'GET') {
       const link_id = url.searchParams.get('link_id');
       const exam = await env.DB.prepare("SELECT * FROM exams WHERE link_id = ?").bind(link_id).first();
       if(!exam) return Response.json({ error: "Exam not found" }, { status: 404 });
       
       const questions = await env.DB.prepare("SELECT * FROM questions WHERE exam_id = ?").bind(exam.id).all();
-      return Response.json({ exam, questions: questions.results });
+      // Fetch school config for dropdowns
+      const config = await env.DB.prepare("SELECT * FROM school_config").all();
+      return Response.json({ exam, questions: questions.results, config: config.results });
     }
     
     if (path === '/api/student/check' && method === 'POST') {
@@ -263,15 +297,15 @@ async function handleApi(request, env, path, url) {
 
       let studentRecord = await env.DB.prepare("SELECT id FROM students WHERE school_id = ?").bind(student.school_id).first();
       
+      // Update or Insert Student
       if (!studentRecord) {
-        const res = await env.DB.prepare("INSERT INTO students (school_id, name, roll) VALUES (?, ?, ?)")
-          .bind(student.school_id, student.name, student.roll).run();
+        const res = await env.DB.prepare("INSERT INTO students (school_id, name, roll, class, section) VALUES (?, ?, ?, ?, ?)")
+          .bind(student.school_id, student.name, student.roll, student.class || null, student.section || null).run();
         studentRecord = { id: res.meta.last_row_id };
       } else {
-        if(student.name) {
-             await env.DB.prepare("UPDATE students SET name = ?, roll = ? WHERE id = ?")
-            .bind(student.name, student.roll, studentRecord.id).run();
-        }
+        // Always update details to latest provided
+        await env.DB.prepare("UPDATE students SET name = ?, roll = ?, class = ?, section = ? WHERE id = ?")
+            .bind(student.name, student.roll, student.class, student.section, studentRecord.id).run();
       }
 
       await env.DB.prepare("INSERT INTO attempts (exam_id, student_db_id, score, total, details) VALUES (?, ?, ?, ?, ?)")
@@ -280,12 +314,12 @@ async function handleApi(request, env, path, url) {
       return Response.json({ success: true });
     }
 
-    // 6. ANALYTICS
+    // 7. ANALYTICS
     if (path === '/api/analytics/exam' && method === 'GET') {
       const examId = url.searchParams.get('exam_id');
       try {
           const results = await env.DB.prepare(`
-            SELECT a.*, s.name, s.school_id, s.roll 
+            SELECT a.*, s.name, s.school_id, s.roll, s.class, s.section 
             FROM attempts a 
             JOIN students s ON a.student_db_id = s.id 
             WHERE a.exam_id = ? 
@@ -310,19 +344,6 @@ async function handleApi(request, env, path, url) {
         } catch(e) {
             return Response.json([]);
         }
-    }
-    
-    if (path === '/api/student/details' && method === 'GET') {
-        const id = url.searchParams.get('id');
-        const student = await env.DB.prepare("SELECT * FROM students WHERE id = ?").bind(id).first();
-        const history = await env.DB.prepare(`
-            SELECT a.*, e.title 
-            FROM attempts a 
-            JOIN exams e ON a.exam_id = e.id 
-            WHERE a.student_db_id = ? 
-            ORDER BY a.timestamp DESC
-        `).bind(id).all();
-        return Response.json({ student, history: history.results });
     }
 
   } catch (err) {
@@ -354,8 +375,6 @@ function getHtml() {
       @keyframes popIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
       @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       .animate-spin-slow { animation: spin 2s linear infinite; }
-      .glass { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
-      .btn-bounce:active { transform: scale(0.95); }
       .no-scrollbar::-webkit-scrollbar { display: none; }
       .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
@@ -364,7 +383,7 @@ function getHtml() {
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef, Component } = React;
+        const { useState, useEffect, useMemo, Component } = React;
 
         // --- ERROR BOUNDARY ---
         class ErrorBoundary extends Component {
@@ -376,7 +395,6 @@ function getHtml() {
                         <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-red-50 text-red-900 text-center">
                             <h1 className="text-3xl font-bold mb-4">Oops! 🐞</h1>
                             <p className="mb-4">Something went wrong.</p>
-                            <pre className="bg-white p-4 rounded text-xs text-left overflow-auto max-w-sm border border-red-200">{this.state.error.toString()}</pre>
                             <button onClick={() => window.location.reload()} className="mt-6 bg-red-600 text-white px-6 py-3 rounded-xl font-bold">Reload App</button>
                         </div>
                     );
@@ -404,9 +422,9 @@ function getHtml() {
             Upload: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>,
             Download: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>,
             Loading: () => <svg className="w-5 h-5 animate-spin-slow" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>,
+            School: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>,
         };
 
-        // --- SHARED COMPONENTS ---
         const ToastContainer = ({ toasts }) => (
             <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 flex flex-col gap-2 w-full max-w-xs px-4">
                 {toasts.map(t => (
@@ -423,13 +441,8 @@ function getHtml() {
             </button>
         );
 
-        const LoadingOverlay = () => (
-             <div className="fixed inset-0 bg-white/50 backdrop-blur-sm z-50 flex items-center justify-center">
-                <div className="bg-white p-4 rounded-full shadow-lg animate-spin-slow text-orange-500"><Icons.Logo/></div>
-             </div>
-        );
+        // --- COMPONENTS ---
 
-        // --- AUTH & MISC COMPONENTS ---
         function Setup({ onComplete, addToast }) { 
              const handle = async (e) => { e.preventDefault(); await fetch('/api/system/init', { method: 'POST' }); const res = await fetch('/api/auth/setup-admin', { method: 'POST', body: JSON.stringify({ name: e.target.name.value, username: e.target.username.value, password: e.target.password.value }) }); if(res.ok) onComplete(); else addToast("Failed", 'error'); };
              return (<div className="min-h-screen bg-orange-50 flex items-center justify-center p-4"><form onSubmit={handle} className="bg-white p-8 rounded-3xl w-full max-w-sm shadow-xl"><h2 className="font-bold text-xl mb-4">Setup School</h2><input name="name" placeholder="School Name" className="w-full bg-gray-50 p-3 rounded-xl mb-3 font-bold" /><input name="username" placeholder="Admin User" className="w-full bg-gray-50 p-3 rounded-xl mb-3 font-bold" /><input name="password" type="password" placeholder="Password" className="w-full bg-gray-50 p-3 rounded-xl mb-4 font-bold" /><button className="w-full bg-orange-500 text-white p-3 rounded-xl font-bold">Start</button></form></div>);
@@ -440,22 +453,22 @@ function getHtml() {
              return (<div className="min-h-screen bg-orange-50 flex items-center justify-center p-4"><form onSubmit={handle} className="bg-white p-8 rounded-3xl w-full max-w-sm shadow-xl relative"><button type="button" onClick={onBack} className="absolute top-6 left-6 font-bold text-gray-400">Back</button><h2 className="font-bold text-2xl mb-6 text-center">Teacher Login</h2><input name="username" placeholder="Username" className="w-full bg-gray-50 p-4 rounded-xl mb-4 font-bold outline-none focus:ring-2 focus:ring-orange-200" /><input name="password" type="password" placeholder="Password" className="w-full bg-gray-50 p-4 rounded-xl mb-6 font-bold outline-none focus:ring-2 focus:ring-orange-200" /><button className="w-full bg-slate-900 text-white p-4 rounded-xl font-bold shadow-lg btn-bounce">Sign In</button></form></div>);
         }
 
-        // --- DASHBOARD LAYOUT (Responsive) ---
         function DashboardLayout({ user, onLogout, title, action, children, activeTab, onTabChange }) {
             const safeUser = user || { name: 'User', role: 'teacher' };
             const initial = (safeUser.name && safeUser.name[0]) ? safeUser.name[0] : 'U';
-            const roleLabel = safeUser.role ? safeUser.role.replace('_', ' ') : 'Teacher';
-
+            
             const tabs = [
                 { id: 'exams', icon: <Icons.Exam />, label: 'Exams' },
-                // Admin gets 'users', Teacher gets 'students'
                 ...(safeUser.role === 'teacher' ? [{ id: 'students', icon: <Icons.Users />, label: 'Students' }] : []),
-                ...(safeUser.role === 'super_admin' ? [{ id: 'users', icon: <Icons.Users />, label: 'Users' }, { id: 'settings', icon: <Icons.Setting />, label: 'Settings' }] : []),
+                ...(safeUser.role === 'super_admin' ? [
+                    { id: 'users', icon: <Icons.Users />, label: 'Users' },
+                    { id: 'school', icon: <Icons.School />, label: 'School Data' },
+                    { id: 'settings', icon: <Icons.Setting />, label: 'Settings' }
+                ] : []),
             ];
 
             return (
                 <div className="min-h-screen pb-20 md:pb-0 md:pl-20 lg:pl-64">
-                    {/* Desktop Sidebar */}
                     <aside className="fixed left-0 top-0 h-screen w-20 lg:w-64 bg-white border-r border-orange-100 hidden md:flex flex-col z-30">
                         <div className="p-6 flex items-center gap-3">
                             <Icons.Logo />
@@ -474,7 +487,6 @@ function getHtml() {
                                 <div className="w-8 h-8 bg-indigo-500 rounded-full flex items-center justify-center text-sm font-bold text-white">{initial}</div>
                                 <div className="flex-1 min-w-0 hidden lg:block">
                                     <p className="text-sm font-medium text-white truncate">{safeUser.name}</p>
-                                    <p className="text-xs text-gray-400 truncate capitalize">{roleLabel}</p>
                                 </div>
                             </div>
                             <button onClick={onLogout} className="w-full flex items-center gap-4 p-3 rounded-2xl text-red-400 hover:bg-red-50 transition">
@@ -482,8 +494,6 @@ function getHtml() {
                             </button>
                         </div>
                     </aside>
-
-                    {/* Mobile Top Bar */}
                     <header className="md:hidden sticky top-0 bg-white/90 backdrop-blur-md border-b border-orange-100 p-4 flex justify-between items-center z-20">
                         <h1 className="text-xl font-bold text-slate-800">{title}</h1>
                         <div className="flex gap-2">
@@ -491,19 +501,13 @@ function getHtml() {
                             <button onClick={onLogout} className="bg-orange-100 p-2 rounded-full text-orange-600"><Icons.Home/></button>
                         </div>
                     </header>
-
-                    {/* Desktop Header Action Area */}
                     <header className="hidden md:flex sticky top-0 bg-white/90 backdrop-blur-md border-b border-orange-100 px-8 py-4 justify-between items-center z-20">
                         <h1 className="text-2xl font-bold text-slate-800">{title}</h1>
                         {action}
                     </header>
-
-                    {/* Main Content */}
                     <main className="p-4 md:p-8 max-w-7xl mx-auto">
                         {children}
                     </main>
-
-                    {/* Mobile Bottom Nav */}
                     <nav className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-orange-100 flex justify-around p-2 z-30 pb-safe">
                         {tabs.map(t => (
                             <button key={t.id} onClick={() => onTabChange(t.id)} className={\`flex flex-col items-center p-2 rounded-xl transition w-full \${activeTab === t.id ? 'text-orange-500 bg-orange-50' : 'text-gray-400'}\`}>
@@ -516,12 +520,55 @@ function getHtml() {
             );
         }
 
-        // --- VIEWS ---
+        function SchoolConfigView({ addToast }) {
+            const [config, setConfig] = useState([]);
+            const [type, setType] = useState('class');
+            const [val, setVal] = useState('');
 
-        // 1. ADMIN DASHBOARD
+            useEffect(() => { load(); }, []);
+            const load = () => fetch('/api/config/get').then(r=>r.json()).then(setConfig);
+
+            const add = async (e) => {
+                e.preventDefault();
+                await fetch('/api/config/add', {method:'POST', body:JSON.stringify({type, value: val})});
+                setVal(''); load();
+                addToast(\`Added \${type}\`);
+            };
+
+            const del = async (id) => {
+                if(!confirm('Delete?')) return;
+                await fetch('/api/config/delete', {method:'POST', body:JSON.stringify({id})});
+                load();
+            };
+
+            return (
+                <div className="grid md:grid-cols-2 gap-8 anim-enter">
+                    <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                        <h3 className="font-bold text-lg mb-4">Add Class/Section</h3>
+                        <form onSubmit={add} className="flex gap-2 mb-6">
+                            <select value={type} onChange={e=>setType(e.target.value)} className="bg-gray-50 rounded-xl px-3 font-bold text-sm">
+                                <option value="class">Class</option>
+                                <option value="section">Section</option>
+                            </select>
+                            <input value={val} onChange={e=>setVal(e.target.value)} className="flex-1 bg-gray-50 p-3 rounded-xl font-bold text-sm outline-none" placeholder="Value (e.g. 10 or A)" required />
+                            <button className="bg-orange-500 text-white px-4 rounded-xl font-bold">Add</button>
+                        </form>
+                        <div className="space-y-2">
+                            {config.map(c => (
+                                <div key={c.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
+                                    <span className="font-bold text-sm text-gray-600 capitalize">{c.type}: <span className="text-slate-900">{c.value}</span></span>
+                                    <button onClick={()=>del(c.id)} className="text-red-400 hover:text-red-600"><Icons.Trash/></button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
         function AdminView({ user, onLogout, addToast }) {
             const [activeTab, setActiveTab] = useState('users');
-            const [userType, setUserType] = useState('teachers'); // teachers | students
+            const [userType, setUserType] = useState('teachers'); 
             const [list, setList] = useState([]);
             const [loading, setLoading] = useState(false);
 
@@ -539,7 +586,7 @@ function getHtml() {
             }
 
             const deleteUser = async (id, name) => {
-                if(!confirm(\`Delete \${name}? This cannot be undone.\`)) return;
+                if(!confirm(\`Delete \${name}?\`)) return;
                 const endpoint = userType === 'teachers' ? '/api/admin/teacher/delete' : '/api/admin/student/delete';
                 await fetch(endpoint, { method: 'POST', body: JSON.stringify({id}) });
                 addToast(\`\${name} Deleted\`);
@@ -547,204 +594,156 @@ function getHtml() {
             };
 
             const handleReset = async () => {
-                if(!confirm("⚠️ DANGER: This will delete ALL exams, questions, students, and results permanently. Are you sure?")) return;
-                const res = await fetch('/api/system/reset', { method: 'POST' });
-                if(res.ok) addToast("System has been factory reset.");
-                else addToast("Reset failed.", 'error');
+                if(!confirm("⚠️ FACTORY RESET: Delete EVERYTHING?")) return;
+                await fetch('/api/system/reset', { method: 'POST' });
+                addToast("System Reset");
             };
 
             const addTeacher = async (e) => {
                 e.preventDefault();
-                const res = await fetch('/api/admin/teachers', {
-                    method: 'POST',
-                    body: JSON.stringify({ name: e.target.name.value, username: e.target.username.value, password: e.target.password.value })
-                });
+                const res = await fetch('/api/admin/teachers', { method: 'POST', body: JSON.stringify({ name: e.target.name.value, username: e.target.username.value, password: e.target.password.value }) });
                 if(res.ok) { addToast("Teacher Added"); e.target.reset(); fetchList(); }
                 else addToast("Failed", 'error');
             };
 
             return (
-                <DashboardLayout user={user} onLogout={onLogout} title="System Admin" activeTab={activeTab} onTabChange={setActiveTab}>
-                    
+                <DashboardLayout user={user} onLogout={onLogout} title="Admin" activeTab={activeTab} onTabChange={setActiveTab}>
                     {activeTab === 'users' && (
                         <div className="anim-enter space-y-6">
-                            {/* Toggle Switch */}
                             <div className="flex bg-white p-1 rounded-xl w-fit border border-gray-100 shadow-sm">
                                 <button onClick={()=>setUserType('teachers')} className={\`px-6 py-2 rounded-lg text-sm font-bold transition \${userType==='teachers'?'bg-indigo-50 text-indigo-600':'text-gray-400 hover:bg-gray-50'}\`}>Teachers</button>
                                 <button onClick={()=>setUserType('students')} className={\`px-6 py-2 rounded-lg text-sm font-bold transition \${userType==='students'?'bg-orange-50 text-orange-600':'text-gray-400 hover:bg-gray-50'}\`}>Students</button>
                             </div>
-
                             {userType === 'teachers' && (
-                                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                                    <h3 className="text-sm font-bold text-gray-400 uppercase mb-4">Add New Teacher</h3>
-                                    <form onSubmit={addTeacher} className="flex flex-col md:flex-row gap-3">
-                                        <input name="name" placeholder="Full Name" className="border p-3 rounded-xl font-bold text-sm flex-1 bg-gray-50 outline-none focus:ring-2 focus:ring-indigo-100" required />
-                                        <input name="username" placeholder="Username" className="border p-3 rounded-xl font-bold text-sm flex-1 bg-gray-50 outline-none focus:ring-2 focus:ring-indigo-100" required />
-                                        <input name="password" placeholder="Password" className="border p-3 rounded-xl font-bold text-sm flex-1 bg-gray-50 outline-none focus:ring-2 focus:ring-indigo-100" required />
-                                        <button className="bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-indigo-700 transition">Add</button>
-                                    </form>
-                                </div>
+                                <form onSubmit={addTeacher} className="flex flex-col md:flex-row gap-3 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                                    <input name="name" placeholder="Name" className="border p-3 rounded-xl font-bold text-sm flex-1 bg-gray-50 outline-none" required />
+                                    <input name="username" placeholder="Username" className="border p-3 rounded-xl font-bold text-sm flex-1 bg-gray-50 outline-none" required />
+                                    <input name="password" placeholder="Password" className="border p-3 rounded-xl font-bold text-sm flex-1 bg-gray-50 outline-none" required />
+                                    <button className="bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold">Add</button>
+                                </form>
                             )}
-
                             <div className="space-y-3">
-                                <div className="flex justify-between items-end">
-                                    <h3 className="font-bold text-xl">{userType === 'teachers' ? 'Teachers List' : 'Students List'}</h3>
-                                    <span className="text-xs font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">{list.length} Total</span>
-                                </div>
-                                
-                                {loading ? <div className="text-center py-10 text-gray-400 font-bold"><Icons.Loading/></div> : 
-                                 list.length === 0 ? <div className="text-center py-10 bg-white rounded-2xl border border-gray-100 text-gray-400">No {userType} found.</div> :
-                                 list.map(u => (
-                                    <div key={u.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center hover:shadow-sm transition">
+                                {loading ? <div className="text-center"><Icons.Loading/></div> : list.map(u => (
+                                    <div key={u.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
                                         <div className="flex items-center gap-4">
                                             <div className={\`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white \${userType==='teachers'?'bg-indigo-400':'bg-orange-400'}\`}>{u.name[0]}</div>
                                             <div>
                                                 <div className="font-bold text-slate-800">{u.name}</div>
                                                 <div className="text-xs text-gray-400 font-mono">{u.username || u.school_id}</div>
+                                                {u.class && <div className="text-xs text-gray-500 font-bold mt-1">Class: {u.class} - {u.section}</div>}
                                             </div>
                                         </div>
-                                        <button onClick={()=>deleteUser(u.id, u.name)} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition"><Icons.Trash /></button>
+                                        <button onClick={()=>deleteUser(u.id, u.name)} className="text-gray-300 hover:text-red-500"><Icons.Trash /></button>
                                     </div>
                                 ))}
                             </div>
                         </div>
                     )}
-
-                    {activeTab === 'settings' && (
-                        <div className="anim-enter bg-red-50 p-8 rounded-xl border border-red-200 mt-4">
-                            <h3 className="text-lg font-bold text-red-900 mb-2">Danger Zone</h3>
-                            <p className="text-red-700 mb-4 text-sm">Performing a system reset will wipe all database records except admin accounts. This cannot be undone.</p>
-                            <button onClick={handleReset} className="bg-red-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-red-700 shadow-lg shadow-red-200 transition">Factory Reset Database</button>
-                        </div>
-                    )}
+                    {activeTab === 'school' && <SchoolConfigView addToast={addToast} />}
+                    {activeTab === 'settings' && <div className="anim-enter bg-red-50 p-8 rounded-xl"><button onClick={handleReset} className="bg-red-600 text-white px-6 py-3 rounded-lg font-bold">Factory Reset</button></div>}
                 </DashboardLayout>
             );
         }
 
-        // 2. TEACHER DASHBOARD
         function TeacherView({ user, onLogout, addToast }) {
             const [tab, setTab] = useState('exams');
-            const [mode, setMode] = useState('list'); // list, create, stats
+            const [mode, setMode] = useState('list');
             const [exams, setExams] = useState([]);
-            const [students, setStudents] = useState([]);
             const [editId, setEditId] = useState(null);
             const [statId, setStatId] = useState(null);
 
-            useEffect(() => { loadExams(); if(tab==='students') loadStudents(); }, [tab]);
-            
-            const loadExams = () => {
-                fetch(\`/api/teacher/exams?teacher_id=\${user.id}\`)
-                    .then(r => r.json())
-                    .then(d => setExams(Array.isArray(d) ? d : []))
-                    .catch(() => setExams([]));
-            };
+            useEffect(() => { loadExams(); }, []);
+            const loadExams = () => fetch(\`/api/teacher/exams?teacher_id=\${user.id}\`).then(r=>r.json()).then(d=>setExams(Array.isArray(d)?d:[]));
 
-            const loadStudents = () => {
-                fetch('/api/students/list').then(r=>r.json()).then(d => setStudents(Array.isArray(d) ? d : []));
-            };
-
-            const toggle = async (id, isActive) => {
-                await fetch('/api/exam/toggle', { method: 'POST', body: JSON.stringify({ id, is_active: !isActive }) });
-                loadExams();
-            };
-
-            const del = async (id) => {
-                if(!confirm("Delete this exam completely?")) return;
-                await fetch('/api/exam/delete', { method: 'POST', body: JSON.stringify({ id }) });
-                addToast("Exam Deleted");
-                loadExams();
-            };
+            const toggle = async (id, isActive) => { await fetch('/api/exam/toggle', {method:'POST', body:JSON.stringify({id, is_active:!isActive})}); loadExams(); };
+            const del = async (id) => { if(!confirm("Delete?")) return; await fetch('/api/exam/delete', {method:'POST', body:JSON.stringify({id})}); loadExams(); };
 
             if (mode === 'create') return <ExamEditor user={user} examId={editId} onCancel={() => setMode('list')} onFinish={() => { setMode('list'); loadExams(); addToast("Exam Saved!"); }} addToast={addToast} />;
             if (mode === 'stats') return <DashboardLayout user={user} onLogout={onLogout} title="Analytics" activeTab={tab} onTabChange={setTab} action={<button onClick={()=>setMode('list')} className="text-gray-500 font-bold">← Back</button>}><ExamStats examId={statId} /></DashboardLayout>;
 
             return (
-                <DashboardLayout user={user} onLogout={onLogout} title={tab === 'exams' ? 'My Exams' : 'Students'} activeTab={tab} onTabChange={setTab}
+                <DashboardLayout user={user} onLogout={onLogout} title={tab==='exams'?'My Exams':'Students'} activeTab={tab} onTabChange={setTab}
                     action={tab === 'exams' && <button onClick={() => { setEditId(null); setMode('create'); }} className="bg-orange-500 text-white px-4 py-2 rounded-xl font-bold shadow-lg shadow-orange-200 btn-bounce flex items-center gap-2"><Icons.Plus /> <span className="hidden sm:inline">New Exam</span></button>}
                 >
-                    {tab === 'exams' && (
-                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 anim-enter pb-20">
-                            {exams.map(e => (
-                                <div key={e.id} className="bg-white p-5 rounded-3xl shadow-sm border border-orange-100 relative group overflow-hidden">
-                                    <div className={\`absolute top-0 left-0 w-2 h-full \${e.is_active ? 'bg-green-400' : 'bg-gray-300'}\`}></div>
-                                    <div className="pl-4">
-                                        <div className="flex justify-between items-start mb-2">
-                                            <h3 className="font-bold text-lg text-slate-800 line-clamp-1">{e.title}</h3>
-                                            <button onClick={()=>del(e.id)} className="text-gray-300 hover:text-red-500"><Icons.Trash/></button>
-                                        </div>
-                                        <div className="flex justify-between items-center mt-4">
-                                            <Toggle checked={!!e.is_active} onChange={()=>toggle(e.id, e.is_active)} />
-                                            <div className="flex gap-2">
-                                                <button onClick={() => { setEditId(e.id); setMode('create'); }} className="bg-orange-50 text-orange-600 p-2 rounded-xl"><Icons.Edit /></button>
-                                                <button onClick={() => { setStatId(e.id); setMode('stats'); }} className="bg-blue-50 text-blue-600 p-2 rounded-xl"><Icons.Chart /></button>
-                                            </div>
-                                        </div>
-                                        <button onClick={() => { 
-                                            if(!e.is_active) return addToast("Exam is closed!", 'error');
-                                            navigator.clipboard.writeText(\`\${window.location.origin}/?exam=\${e.link_id}\`); 
-                                            addToast("Link Copied!"); 
-                                        }} className="w-full mt-4 bg-gray-50 text-gray-600 text-xs font-bold py-2 rounded-xl hover:bg-gray-100">
-                                            Copy Link
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
-                            {exams.length === 0 && <div className="col-span-full text-center text-gray-400 py-10 font-bold">No exams yet! Tap "New Exam" to start.</div>}
+                    {tab === 'exams' && <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 anim-enter pb-20">{exams.map(e => (
+                        <div key={e.id} className="bg-white p-5 rounded-3xl shadow-sm border border-orange-100 relative group overflow-hidden">
+                            <div className={\`absolute top-0 left-0 w-2 h-full \${e.is_active ? 'bg-green-400' : 'bg-gray-300'}\`}></div>
+                            <div className="pl-4">
+                                <div className="flex justify-between items-start mb-2"><h3 className="font-bold text-lg text-slate-800 line-clamp-1">{e.title}</h3><button onClick={()=>del(e.id)} className="text-gray-300 hover:text-red-500"><Icons.Trash/></button></div>
+                                <div className="flex justify-between items-center mt-4"><Toggle checked={!!e.is_active} onChange={()=>toggle(e.id, e.is_active)} /><div className="flex gap-2"><button onClick={() => { setEditId(e.id); setMode('create'); }} className="bg-orange-50 text-orange-600 p-2 rounded-xl"><Icons.Edit /></button><button onClick={() => { setStatId(e.id); setMode('stats'); }} className="bg-blue-50 text-blue-600 p-2 rounded-xl"><Icons.Chart /></button></div></div>
+                                <button onClick={() => { navigator.clipboard.writeText(\`\${window.location.origin}/?exam=\${e.link_id}\`); addToast("Link Copied!"); }} className="w-full mt-4 bg-gray-50 text-gray-600 text-xs font-bold py-2 rounded-xl hover:bg-gray-100">Copy Link</button>
+                            </div>
                         </div>
-                    )}
-                    {tab === 'students' && (
-                        <div className="grid gap-3 pb-20">
-                           {students.map(s=><div key={s.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center"><div><div className="font-bold">{s.name}</div><div className="text-xs text-gray-400">{s.school_id}</div></div><div className="font-bold text-green-500">{Math.round(s.avg_score||0)}%</div></div>)}
-                        </div>
-                    )}
+                    ))}</div>}
+                    {tab === 'students' && <StudentList />}
                 </DashboardLayout>
             );
         }
 
         function StudentList() {
-            // Replaced by inline component in TeacherView for simplicity in this file structure
-            return null; 
+            const [list, setList] = useState([]);
+            const [config, setConfig] = useState([]);
+            const [filterClass, setFilterClass] = useState('');
+            const [filterSec, setFilterSec] = useState('');
+            const [search, setSearch] = useState('');
+
+            useEffect(() => { 
+                fetch('/api/students/list').then(r=>r.json()).then(d=>setList(Array.isArray(d)?d:[]));
+                fetch('/api/config/get').then(r=>r.json()).then(setConfig);
+            }, []);
+
+            const classes = [...new Set(config.filter(c=>c.type==='class').map(c=>c.value))];
+            const sections = [...new Set(config.filter(c=>c.type==='section').map(c=>c.value))];
+
+            const filtered = list.filter(s => {
+                if(filterClass && s.class !== filterClass) return false;
+                if(filterSec && s.section !== filterSec) return false;
+                if(search && !s.name.toLowerCase().includes(search.toLowerCase()) && !s.school_id.includes(search)) return false;
+                return true;
+            });
+
+            return (
+                <div className="space-y-4 pb-20">
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-4">
+                        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search Name or ID..." className="bg-gray-50 p-3 rounded-xl font-bold text-sm flex-1 outline-none focus:ring-2 focus:ring-indigo-100" />
+                        <div className="flex gap-2">
+                            <select value={filterClass} onChange={e=>setFilterClass(e.target.value)} className="bg-gray-50 p-3 rounded-xl font-bold text-sm outline-none"><option value="">All Classes</option>{classes.map(c=><option key={c} value={c}>{c}</option>)}</select>
+                            <select value={filterSec} onChange={e=>setFilterSec(e.target.value)} className="bg-gray-50 p-3 rounded-xl font-bold text-sm outline-none"><option value="">All Sections</option>{sections.map(s=><option key={s} value={s}>{s}</option>)}</select>
+                        </div>
+                    </div>
+                    <div className="grid gap-3">
+                        {filtered.map(s=><div key={s.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
+                            <div><div className="font-bold">{s.name}</div><div className="text-xs text-gray-400">{s.school_id}</div><div className="text-xs font-bold text-indigo-500 mt-1">{s.class ? \`Class \${s.class}\` : 'No Class'} {s.section && \` - \${s.section}\`}</div></div>
+                            <div className="font-bold text-green-500">{Math.round(s.avg_score||0)}%</div>
+                        </div>)}
+                        {filtered.length === 0 && <div className="text-center text-gray-400 py-10">No students found</div>}
+                    </div>
+                </div>
+            );
         }
 
         function ExamStats({ examId }) {
             const [data, setData] = useState([]);
             const [viewDetail, setViewDetail] = useState(null);
             
-            useEffect(() => { 
-                fetch(\`/api/analytics/exam?exam_id=\${examId}\`)
-                    .then(r=>r.json())
-                    .then(d => setData(Array.isArray(d) ? d : []))
-                    .catch(() => setData([]));
-            }, [examId]);
+            useEffect(() => { fetch(\`/api/analytics/exam?exam_id=\${examId}\`).then(r=>r.json()).then(d=>setData(Array.isArray(d)?d:[])); }, [examId]);
 
             if(viewDetail) return (
                 <div className="bg-white rounded-xl border p-6 anim-enter">
-                    <button onClick={()=>setViewDetail(null)} className="mb-4 text-sm font-bold text-gray-500">← Back to List</button>
-                    <h3 className="font-bold text-xl mb-4">{viewDetail.name}'s Answers</h3>
-                    <div className="space-y-4">
-                        {JSON.parse(viewDetail.details || '[]').map((d,i) => (
-                            <div key={i} className={\`p-4 rounded-lg border \${d.isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}\`}>
-                                <div className="font-bold text-gray-800 mb-1">Q{i+1}: {d.qText}</div>
-                                <div className="text-sm">
-                                    <span className="font-bold">Student:</span> {d.selectedText} 
-                                    {!d.isCorrect && <span className="ml-4 text-gray-600"><span className="font-bold">Correct:</span> {d.correctText}</span>}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
+                    <button onClick={()=>setViewDetail(null)} className="mb-4 text-sm font-bold text-gray-500">← Back</button>
+                    <h3 className="font-bold text-xl mb-4">{viewDetail.name} <span className="text-sm font-normal text-gray-500">({viewDetail.roll})</span></h3>
+                    <div className="space-y-4">{JSON.parse(viewDetail.details || '[]').map((d,i)=><div key={i} className={\`p-4 rounded-lg border \${d.isCorrect?'bg-green-50 border-green-200':'bg-red-50 border-red-200'}\`}><div className="font-bold text-gray-800 mb-1">Q{i+1}: {d.qText}</div><div className="text-sm"><span className="font-bold">Student:</span> {d.selectedText} {!d.isCorrect && <span className="ml-4 text-gray-600"><span className="font-bold">Correct:</span> {d.correctText}</span>}</div></div>)}</div>
                 </div>
             )
 
-            return <div className="space-y-3 pb-20">{data.map(r=><div key={r.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center"><div><div className="font-bold">{r.name}</div><div className="text-xs text-gray-500">{new Date(r.timestamp).toLocaleString()}</div></div><div className="flex items-center gap-3"><span className="font-bold">{r.score}/{r.total}</span><button onClick={()=>setViewDetail(r)} className="text-indigo-600 text-xs font-bold border border-indigo-200 px-2 py-1 rounded">View</button></div></div>)}</div>
+            return <div className="space-y-3 pb-20">{data.map(r=><div key={r.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center"><div><div className="font-bold">{r.name}</div><div className="text-xs text-gray-500">{r.class && \`Class \${r.class}\`} {new Date(r.timestamp).toLocaleString()}</div></div><div className="flex items-center gap-3"><span className="font-bold">{r.score}/{r.total}</span><button onClick={()=>setViewDetail(r)} className="text-indigo-600 text-xs font-bold border border-indigo-200 px-2 py-1 rounded">View</button></div></div>)}</div>
         }
 
-        // 2. EXAM EDITOR
         function ExamEditor({ user, examId, onCancel, onFinish, addToast }) {
-            const [step, setStep] = useState('setup'); // setup, questions
-            const [meta, setMeta] = useState({ title: '', timerMode: 'question', timerValue: 30, studentFields: { name: true, roll: true, school_id: true }, allowBack: false, allowRetakes: false, showResult: true });
+            const [meta, setMeta] = useState({ title: '', timerMode: 'question', timerValue: 30, allowBack: false, allowRetakes: false });
             const [qs, setQs] = useState([]);
             const [activeQ, setActiveQ] = useState(null); 
-            const [submitting, setSubmitting] = useState(false); // Fix: Prevent double tap
+            const [submitting, setSubmitting] = useState(false);
 
             useEffect(() => {
                 if (examId) fetch(\`/api/teacher/exam-details?id=\${examId}\`).then(r => r.json()).then(data => {
@@ -755,39 +754,56 @@ function getHtml() {
 
             const saveQ = (q) => {
                 if (!q.text || !q.choices.some(c => c.isCorrect)) return addToast("Incomplete Question", 'error');
-                if (q.tempId) setQs(qs.map(x => x.tempId === q.tempId ? q : x)); 
-                else setQs([...qs, { ...q, tempId: Date.now() }]); 
+                setQs(prev => {
+                    const exists = prev.find(x => x.tempId === q.tempId);
+                    if(exists) return prev.map(x => x.tempId === q.tempId ? q : x);
+                    return [...prev, { ...q, tempId: Date.now() }];
+                });
                 setActiveQ(null);
             };
 
             const publish = async () => {
-                if (submitting) return; // Fix: Double tap prevention
+                if (submitting) return; 
                 if (!meta.title || qs.length === 0) return addToast("Needs title & questions", 'error');
-                
-                setSubmitting(true); // Start loading
-
+                setSubmitting(true);
                 try {
                     const res = await fetch('/api/exam/save', { method: 'POST', body: JSON.stringify({ id: examId, title: meta.title, teacher_id: user.id, settings: meta }) });
                     const data = await res.json();
-                    
                     for (let q of qs) {
                         const fd = new FormData();
                         fd.append('exam_id', data.id);
                         fd.append('text', q.text);
                         fd.append('choices', JSON.stringify(q.choices));
-                        if (q.image instanceof File) fd.append('image', q.image);
-                        else if (q.image_key) fd.append('existing_image_key', q.image_key);
+                        
+                        // Handle Image Deletion vs Upload vs Keep
+                        if (q.image === null && q.image_key === null) {
+                           // Explicitly removed: send nothing or handle in backend if needed. 
+                           // Current backend logic: if image is missing and existing_image_key is missing, insert NULL.
+                           // So we don't append anything.
+                        } else if (q.image instanceof File) {
+                           fd.append('image', q.image);
+                        } else if (q.image_key) {
+                           fd.append('existing_image_key', q.image_key);
+                        }
+
                         await fetch('/api/question/add', { method: 'POST', body: fd });
                     }
                     onFinish();
-                } catch(e) {
-                    addToast("Error Saving", 'error');
-                } finally {
-                    setSubmitting(false); // End loading
-                }
+                } catch(e) { addToast("Error Saving", 'error'); } 
+                finally { setSubmitting(false); }
             };
 
-            // JSON Import Handlers (omitted for brevity, same as before)
+            const downloadTemplate = () => {
+                const example = [
+                    { "text": "What is 2+2?", "choices": [ {"text": "3", "isCorrect": false}, {"text": "4", "isCorrect": true} ] }
+                ];
+                const blob = new Blob([JSON.stringify(example, null, 2)], {type: "application/json"});
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = "exam_example.json";
+                a.click();
+            };
+
             const handleJsonImport = (e) => {
                  const file = e.target.files[0];
                 if (!file) return;
@@ -798,18 +814,12 @@ function getHtml() {
                         if (!Array.isArray(json)) throw new Error("Root must be an array");
                         const newQs = json.map(q => ({
                             text: q.text || "Untitled Question",
-                            choices: Array.isArray(q.choices) ? q.choices.map((c, i) => ({
-                                id: Date.now() + Math.random() + i,
-                                text: c.text || "",
-                                isCorrect: !!c.isCorrect
-                            })) : [],
+                            choices: Array.isArray(q.choices) ? q.choices.map((c, i) => ({ id: Date.now() + Math.random() + i, text: c.text || "", isCorrect: !!c.isCorrect })) : [],
                             tempId: Date.now() + Math.random()
                         }));
                         setQs(prev => [...prev, ...newQs]);
                         addToast(\`Imported \${newQs.length} questions\`);
-                    } catch (err) {
-                        addToast("Invalid JSON Format", 'error');
-                    }
+                    } catch (err) { addToast("Invalid JSON Format", 'error'); }
                 };
                 reader.readAsText(file);
                 e.target.value = null;
@@ -820,131 +830,32 @@ function getHtml() {
                     <div className="sticky top-0 bg-white border-b border-orange-100 p-4 flex justify-between items-center z-40">
                         <button onClick={onCancel} disabled={submitting} className="text-gray-400 font-bold"><Icons.Back /></button>
                         <h2 className="font-bold text-lg">{examId ? 'Edit Exam' : 'New Class Exam'}</h2>
-                        <button onClick={publish} disabled={submitting} className="text-orange-600 font-bold text-sm flex items-center gap-2">
-                            {submitting && <Icons.Loading />}
-                            {submitting ? 'Saving...' : 'Save'}
-                        </button>
+                        <button onClick={publish} disabled={submitting} className="text-orange-600 font-bold text-sm flex items-center gap-2">{submitting && <Icons.Loading />}{submitting ? 'Saving...' : 'Save'}</button>
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-4 max-w-2xl mx-auto w-full">
                         <div className="bg-white md:rounded-3xl md:p-6 md:shadow-sm space-y-6">
-                            {/* Meta Section */}
-                            <div>
-                                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Title</label>
-                                <input value={meta.title} onChange={e => setMeta({ ...meta, title: e.target.value })} className="w-full text-2xl font-bold border-b-2 border-gray-100 focus:border-orange-400 outline-none placeholder-gray-200" placeholder="e.g. Science Quiz" />
-                            </div>
-
+                            <div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Title</label><input value={meta.title} onChange={e => setMeta({ ...meta, title: e.target.value })} className="w-full text-2xl font-bold border-b-2 border-gray-100 focus:border-orange-400 outline-none placeholder-gray-200" placeholder="e.g. Science Quiz" /></div>
                             <div className="grid grid-cols-2 gap-4">
-                                <div className="bg-gray-50 p-3 rounded-2xl">
-                                    <label className="text-xs font-bold text-gray-400 uppercase">Timer</label>
-                                    <div className="flex gap-2 mt-1">
-                                        <select value={meta.timerMode} onChange={e => setMeta({ ...meta, timerMode: e.target.value })} className="bg-transparent font-bold text-sm outline-none"><option value="question">Per Q</option><option value="total">Total</option></select>
-                                        <input type="number" value={meta.timerValue} onChange={e => setMeta({ ...meta, timerValue: e.target.value })} className="w-12 bg-white rounded-lg text-center font-bold text-sm" />
-                                    </div>
-                                </div>
-                                <div className="bg-gray-50 p-3 rounded-2xl flex items-center justify-between">
-                                    <span className="text-xs font-bold text-gray-400 uppercase">Back Nav</span>
-                                    <Toggle checked={meta.allowBack} onChange={v => setMeta({ ...meta, allowBack: v })} />
-                                </div>
+                                <div className="bg-gray-50 p-3 rounded-2xl"><label className="text-xs font-bold text-gray-400 uppercase">Timer</label><div className="flex gap-2 mt-1"><select value={meta.timerMode} onChange={e => setMeta({ ...meta, timerMode: e.target.value })} className="bg-transparent font-bold text-sm outline-none"><option value="question">Per Q</option><option value="total">Total</option></select><input type="number" value={meta.timerValue} onChange={e => setMeta({ ...meta, timerValue: e.target.value })} className="w-12 bg-white rounded-lg text-center font-bold text-sm" /></div></div>
+                                <div className="bg-gray-50 p-3 rounded-2xl flex items-center justify-between"><span className="text-xs font-bold text-gray-400 uppercase">Back Nav</span><Toggle checked={meta.allowBack} onChange={v => setMeta({ ...meta, allowBack: v })} /></div>
                             </div>
-
-                            {/* Questions List */}
                             <div>
-                                <div className="flex justify-between items-end mb-4">
-                                    <label className="text-xs font-bold text-gray-400 uppercase">Questions ({qs.length})</label>
-                                </div>
-
-                                {/* Import Toolbar */}
-                                <div className="flex gap-2 mb-4">
-                                    <label className="flex items-center gap-2 bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-sm font-bold cursor-pointer hover:bg-indigo-100 transition">
-                                        <Icons.Upload /> Import JSON
-                                        <input type="file" className="hidden" accept=".json" onChange={handleJsonImport} />
-                                    </label>
-                                </div>
-                                
-                                <div className="space-y-3 mb-20">
-                                    {qs.map((q, i) => (
-                                        <div key={i} onClick={() => setActiveQ(q)} className="bg-white border border-gray-100 p-4 rounded-2xl shadow-sm flex items-center gap-4 active:scale-95 transition cursor-pointer">
-                                            <span className="font-bold text-orange-400 bg-orange-50 w-8 h-8 flex items-center justify-center rounded-full text-xs">{i + 1}</span>
-                                            {q.image_key && <Icons.Image />}
-                                            <div className="flex-1 min-w-0">
-                                                <p className="font-bold text-sm truncate">{q.text}</p>
-                                                <p className="text-xs text-gray-400">{q.choices.length} options</p>
-                                            </div>
-                                            <button onClick={(e) => { e.stopPropagation(); setQs(qs.filter(x => x !== q)); }} className="text-red-300"><Icons.Trash /></button>
-                                        </div>
-                                    ))}
-                                    
-                                    <button onClick={() => setActiveQ({ text: '', choices: [{ id: 1, text: '', isCorrect: false }, { id: 2, text: '', isCorrect: false }], tempId: Date.now() })} className="w-full py-4 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 font-bold text-sm hover:border-orange-300 hover:text-orange-500 transition">
-                                        + Add Question
-                                    </button>
+                                <div className="flex gap-2 mb-4"><label className="flex items-center gap-2 bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-sm font-bold cursor-pointer hover:bg-indigo-100 transition"><Icons.Upload /> Import JSON<input type="file" className="hidden" accept=".json" onChange={handleJsonImport} /></label><button onClick={downloadTemplate} className="flex items-center gap-2 bg-gray-50 text-gray-500 px-4 py-2 rounded-xl text-sm font-bold hover:bg-gray-100 transition"><Icons.Download /> Example</button></div>
+                                <div className="space-y-3 mb-20">{qs.map((q, i) => (<div key={i} onClick={() => setActiveQ(q)} className="bg-white border border-gray-100 p-4 rounded-2xl shadow-sm flex items-center gap-4 active:scale-95 transition cursor-pointer"><span className="font-bold text-orange-400 bg-orange-50 w-8 h-8 flex items-center justify-center rounded-full text-xs">{i + 1}</span>{q.image_key && <Icons.Image />}<div className="flex-1 min-w-0"><p className="font-bold text-sm truncate">{q.text}</p><p className="text-xs text-gray-400">{q.choices.length} options</p></div><button onClick={(e) => { e.stopPropagation(); setQs(qs.filter(x => x !== q)); }} className="text-red-300"><Icons.Trash /></button></div>))}
+                                    <button onClick={() => setActiveQ({ text: '', choices: [{ id: 1, text: '', isCorrect: false }, { id: 2, text: '', isCorrect: false }], tempId: Date.now() })} className="w-full py-4 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 font-bold text-sm hover:border-orange-300 hover:text-orange-500 transition">+ Add Question</button>
                                 </div>
                             </div>
                         </div>
                     </div>
-
-                    {/* Question Modal (Improved Image Upload) */}
                     {activeQ && (
                         <div className="fixed inset-0 bg-white z-50 flex flex-col anim-enter">
-                            <div className="p-4 border-b flex justify-between items-center bg-gray-50">
-                                <button onClick={() => setActiveQ(null)} className="font-bold text-gray-500">Cancel</button>
-                                <span className="font-bold">Edit Question</span>
-                                <button onClick={() => saveQ(activeQ)} className="font-bold text-green-600">Done</button>
-                            </div>
+                            <div className="p-4 border-b flex justify-between items-center bg-gray-50"><button onClick={() => setActiveQ(null)} className="font-bold text-gray-500">Cancel</button><span className="font-bold">Edit Question</span><button onClick={() => saveQ(activeQ)} className="font-bold text-green-600 bg-green-50 px-4 py-1 rounded-lg">Done</button></div>
                             <div className="flex-1 overflow-y-auto p-6 max-w-2xl mx-auto w-full">
                                 <textarea value={activeQ.text} onChange={e => setActiveQ({ ...activeQ, text: e.target.value })} className="w-full text-xl font-bold outline-none resize-none placeholder-gray-300 mb-6" placeholder="Type question here..." rows="3" autoFocus />
-                                
-                                <div className="mb-6">
-                                    <label className="block w-full">
-                                        <div className="w-full h-40 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400 cursor-pointer hover:bg-gray-100 relative overflow-hidden">
-                                            {activeQ.image ? (
-                                                activeQ.image instanceof File ? 
-                                                <img src={URL.createObjectURL(activeQ.image)} className="h-full w-full object-contain" /> :
-                                                <div className="text-center">
-                                                    <img src="https://placehold.co/100x100?text=Existing" className="h-20 w-auto opacity-50 mx-auto" />
-                                                    <span className="text-xs font-bold text-green-500 block mt-2">Image Attached</span>
-                                                </div>
-                                            ) : activeQ.image_key ? (
-                                                <div className="text-center">
-                                                     <img src={\`/img/\${activeQ.image_key}\`} className="h-32 object-contain mx-auto" />
-                                                </div>
-                                            ) : (
-                                                <>
-                                                    <Icons.Image />
-                                                    <span className="text-xs font-bold mt-2">Add Photo</span>
-                                                </>
-                                            )}
-                                            
-                                            {/* File Info Overlay */}
-                                            {activeQ.image instanceof File && (
-                                                <div className="absolute bottom-0 left-0 w-full bg-black/50 text-white text-xs p-2 text-center backdrop-blur-sm">
-                                                    {activeQ.image.name} ({(activeQ.image.size/1024).toFixed(1)} KB)
-                                                </div>
-                                            )}
-                                        </div>
-                                        <input type="file" className="hidden" accept="image/*" onChange={e => {
-                                            if(e.target.files[0]) {
-                                                setActiveQ({ ...activeQ, image: e.target.files[0] });
-                                            }
-                                        }} />
-                                    </label>
-                                    {(activeQ.image || activeQ.image_key) && (
-                                        <button onClick={()=>setActiveQ({...activeQ, image: null, image_key: null})} className="text-red-500 text-xs font-bold mt-2 flex items-center gap-1 justify-center"><Icons.Trash/> Remove Image</button>
-                                    )}
-                                </div>
-
-                                <div className="space-y-3">
-                                    {activeQ.choices.map((c, i) => (
-                                        <div key={c.id} className="flex items-center gap-3">
-                                            <div onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => ({ ...x, isCorrect: x.id === c.id })) })} className={\`w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition \${c.isCorrect ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300'}\`}>
-                                                {c.isCorrect && <span className="font-bold text-sm">✓</span>}
-                                            </div>
-                                            <input value={c.text} onChange={e => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => x.id === c.id ? { ...x, text: e.target.value } : x) })} className="flex-1 bg-gray-50 p-3 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-orange-200" placeholder={\`Option \${i + 1}\`} />
-                                            <button onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.filter(x => x.id !== c.id) })} className="text-gray-300 px-2">×</button>
-                                        </div>
-                                    ))}
-                                    <button onClick={() => setActiveQ({ ...activeQ, choices: [...activeQ.choices, { id: Date.now(), text: '', isCorrect: false }] })} className="text-sm font-bold text-blue-500 mt-2 ml-11">+ Add Option</button>
-                                </div>
+                                <div className="mb-6"><label className="block w-full"><div className="w-full h-40 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400 cursor-pointer hover:bg-gray-100 relative overflow-hidden">{activeQ.image ? (activeQ.image instanceof File ? <img src={URL.createObjectURL(activeQ.image)} className="h-full w-full object-contain" /> : <div className="text-center"><img src="https://placehold.co/100x100?text=Existing" className="h-20 w-auto opacity-50 mx-auto" /><span className="text-xs font-bold text-green-500 block mt-2">Image Attached</span></div>) : activeQ.image_key ? (<div className="text-center"><img src={\`/img/\${activeQ.image_key}\`} className="h-32 object-contain mx-auto" /></div>) : (<><Icons.Image /><span className="text-xs font-bold mt-2">Add Photo</span></>)}
+                                {activeQ.image instanceof File && (<div className="absolute bottom-0 left-0 w-full bg-black/50 text-white text-xs p-2 text-center backdrop-blur-sm">{activeQ.image.name} ({(activeQ.image.size/1024).toFixed(1)} KB)</div>)}</div><input type="file" className="hidden" accept="image/*" onChange={e => {if(e.target.files[0]) { setActiveQ({ ...activeQ, image: e.target.files[0] }); }}} /></label>{(activeQ.image || activeQ.image_key) && (<button onClick={()=>setActiveQ({...activeQ, image: null, image_key: null})} className="text-red-500 text-xs font-bold mt-2 flex items-center gap-1 justify-center"><Icons.Trash/> Remove Image</button>)}</div>
+                                <div className="space-y-3">{activeQ.choices.map((c, i) => (<div key={c.id} className="flex items-center gap-3"><div onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => ({ ...x, isCorrect: x.id === c.id })) })} className={\`w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition \${c.isCorrect ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300'}\`}>{c.isCorrect && <span className="font-bold text-sm">✓</span>}</div><input value={c.text} onChange={e => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => x.id === c.id ? { ...x, text: e.target.value } : x) })} className="flex-1 bg-gray-50 p-3 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-orange-200" placeholder={\`Option \${i + 1}\`} /><button onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.filter(x => x.id !== c.id) })} className="text-gray-300 px-2">×</button></div>))}<button onClick={() => setActiveQ({ ...activeQ, choices: [...activeQ.choices, { id: Date.now(), text: '', isCorrect: false }] })} className="text-sm font-bold text-blue-500 mt-2 ml-11">+ Add Option</button></div>
                             </div>
                         </div>
                     )}
@@ -952,105 +863,31 @@ function getHtml() {
             );
         }
 
-        // 4. STUDENT HUB (Gamified)
-        function StudentPortal({ onBack }) {
-            const [id, setId] = useState('');
-            const [data, setData] = useState(null);
-            
-            const login = async (e) => {
-                e.preventDefault();
-                const res = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: id }) }).then(r => r.json());
-                if(res.found) { setData(res); localStorage.setItem('student_id', id); }
-                else alert("ID not found!");
-            };
-
-            // Auto-login check
-            useEffect(() => {
-                const saved = localStorage.getItem('student_id');
-                if(saved && !data) {
-                    fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: saved }) }).then(r => r.json()).then(r => r.found && setData(r));
-                }
-            }, []);
-
-            if(!data) return (
-                <div className="min-h-screen bg-orange-50 flex items-center justify-center p-6">
-                    <div className="bg-white w-full max-w-sm p-8 rounded-3xl shadow-xl text-center anim-pop">
-                        <div className="mb-6 mx-auto w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center text-orange-500"><Icons.Logo /></div>
-                        <h1 className="text-2xl font-bold text-slate-800 mb-2">Student Hub</h1>
-                        <p className="text-gray-400 mb-8 text-sm font-bold">Check your progress & badges</p>
-                        <form onSubmit={login}>
-                            <input value={id} onChange={e=>setId(e.target.value)} className="w-full bg-gray-100 p-4 rounded-2xl font-bold text-center text-lg outline-none focus:ring-2 focus:ring-orange-400 mb-4" placeholder="Enter School ID" />
-                            <button className="w-full bg-orange-500 text-white font-bold py-4 rounded-2xl btn-bounce shadow-lg shadow-orange-200">Enter</button>
-                        </form>
-                        <button onClick={onBack} className="mt-6 text-gray-400 font-bold text-sm">Back to Home</button>
-                    </div>
-                </div>
-            );
-
-            return (
-                <div className="min-h-screen bg-orange-50 pb-safe">
-                    <div className="bg-orange-500 p-8 pb-16 rounded-b-[40px] text-white shadow-lg relative overflow-hidden">
-                        <div className="relative z-10">
-                            <div className="flex justify-between items-center mb-6">
-                                <button onClick={()=>{localStorage.removeItem('student_id'); setData(null);}} className="bg-white/20 p-2 rounded-xl backdrop-blur-sm text-sm font-bold">Logout</button>
-                                <span className="font-bold opacity-70">My Class</span>
-                            </div>
-                            <h1 className="text-3xl font-bold mb-1">Hi, {data.student.name.split(' ')[0]}!</h1>
-                            <p className="opacity-80 font-bold text-sm tracking-wide">{data.student.school_id}</p>
-                        </div>
-                    </div>
-
-                    <div className="px-6 -mt-10 relative z-20 max-w-lg mx-auto space-y-6">
-                        {/* Stats Card */}
-                        <div className="bg-white p-6 rounded-3xl shadow-lg flex justify-around text-center">
-                            <div>
-                                <div className="text-3xl font-black text-slate-800">{data.history.length}</div>
-                                <div className="text-xs font-bold text-gray-400 uppercase">Exams</div>
-                            </div>
-                            <div className="w-px bg-gray-100"></div>
-                            <div>
-                                <div className="text-3xl font-black text-green-500">{Math.round(data.history.reduce((a,b)=>a+(b.score/b.total),0)/data.history.length * 100 || 0)}%</div>
-                                <div className="text-xs font-bold text-gray-400 uppercase">Avg Score</div>
-                            </div>
-                        </div>
-
-                        {/* History */}
-                        <div className="space-y-4 pb-10">
-                            <h3 className="font-bold text-slate-400 text-xs uppercase ml-2">Recent Activities</h3>
-                            {data.history.map(h => (
-                                <div key={h.id} className="bg-white p-5 rounded-2xl shadow-sm border border-orange-50 flex justify-between items-center">
-                                    <div>
-                                        <h4 className="font-bold text-slate-800">{h.title}</h4>
-                                        <p className="text-xs text-gray-400 font-bold">{new Date(h.timestamp).toLocaleDateString()}</p>
-                                    </div>
-                                    <div className={\`text-lg font-black \${(h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400'}\`}>
-                                        {h.score}/{h.total}
-                                    </div>
-                                </div>
-                            ))}
-                            {data.history.length === 0 && <div className="text-center text-gray-400 font-bold py-10">No exams yet!</div>}
-                        </div>
-                    </div>
-                </div>
-            );
-        }
-
-        // 5. EXAM TAKER (Isolated App)
+        // 5. STUDENT EXAM APP (With Dropdowns & Validation)
         function StudentExamApp({ linkId }) {
             const [mode, setMode] = useState('identify'); 
-            const [student, setStudent] = useState({ name: '', school_id: '', roll: '' }); 
+            const [student, setStudent] = useState({ name: '', school_id: '', roll: '', class: '', section: '' }); 
             const [exam, setExam] = useState(null); 
+            const [config, setConfig] = useState({ classes: [], sections: [] });
+            
+            // Game State
             const [qIdx, setQIdx] = useState(0); 
             const [score, setScore] = useState(0); 
             const [answers, setAnswers] = useState({});
-            
             const [resultDetails, setResultDetails] = useState(null);
             const [examHistory, setExamHistory] = useState([]);
-
             const [qTime, setQTime] = useState(0);
             const [totalTime, setTotalTime] = useState(0);
 
-            useEffect(() => { fetch(\`/api/exam/get?link_id=\${linkId}\`).then(r=>r.json()).then(d => d.exam?.is_active ? setExam(d) : alert("Exam Closed")); }, [linkId]);
+            useEffect(() => { 
+                fetch(\`/api/exam/get?link_id=\${linkId}\`).then(r=>r.json()).then(d => {
+                    if(!d.exam?.is_active) return alert("Exam Closed");
+                    setExam(d);
+                    const classes = [...new Set(d.config.filter(c=>c.type==='class').map(c=>c.value))];
+                    const sections = [...new Set(d.config.filter(c=>c.type==='section').map(c=>c.value))];
+                    setConfig({ classes, sections });
+                }); 
+            }, [linkId]);
 
             // Timer Tick
             useEffect(() => {
@@ -1082,35 +919,25 @@ function getHtml() {
                     const s = answers[q.id]; 
                     const choices = JSON.parse(q.choices);
                     const correctChoice = choices.find(x => x.isCorrect);
-                    const selectedChoice = choices.find(x => x.id === s);
                     const c = correctChoice?.id; 
                     const isCorrect = s === c;
                     if(isCorrect) fs++; 
-                    return { 
-                        qId: q.id, 
-                        qText: q.text,
-                        choices: choices,
-                        selected: s, 
-                        selectedText: selectedChoice?.text || "Skipped",
-                        correct: c, 
-                        correctText: correctChoice?.text,
-                        isCorrect 
-                    }; 
+                    return { qId: q.id, qText: q.text, choices: choices, selected: s, selectedText: choices.find(x => x.id === s)?.text || "Skipped", correct: c, correctText: correctChoice?.text, isCorrect }; 
                 });
                 
-                setScore(fs); 
-                setResultDetails(det);
-                
+                setScore(fs); setResultDetails(det);
                 if((fs/exam.questions.length) > 0.6) confetti();
-
                 await fetch('/api/submit', { method: 'POST', body: JSON.stringify({ link_id: linkId, student, score: fs, total: exam.questions.length, answers: det }) });
-                
                 const histRes = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: student.school_id }) }).then(r => r.json());
-                if (histRes.found) {
-                    setExamHistory(histRes.history.filter(h => h.exam_id === exam.exam.id));
-                }
-                
+                if (histRes.found) setExamHistory(histRes.history.filter(h => h.exam_id === exam.exam.id));
                 setMode('summary');
+            };
+
+            const startGame = () => {
+                 setMode('game'); 
+                 const settings = JSON.parse(exam.exam.settings || '{}');
+                 if(settings.timerMode==='total') setTotalTime((settings.timerValue||10)*60); 
+                 if(settings.timerMode==='question') setQTime(settings.timerValue||30);
             };
 
             if(!exam) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400">Loading Exam...</div>;
@@ -1122,20 +949,51 @@ function getHtml() {
                         <h1 className="text-2xl font-bold mb-4">Join Class</h1>
                         <input className="w-full bg-gray-100 p-4 rounded-xl font-bold mb-3 outline-none" placeholder="School ID" value={student.school_id} onChange={e=>setStudent({...student, school_id:e.target.value})} />
                         <button onClick={async()=>{
+                            if(!student.school_id) return alert("Enter ID");
                             const r = await fetch('/api/student/identify', {method:'POST', body:JSON.stringify({school_id:student.school_id})}).then(x=>x.json());
-                            if(r.found) { setStudent({...r.student, ...student}); setMode('game'); if(settings.timerMode==='total') setTotalTime((settings.timerValue||10)*60); if(settings.timerMode==='question') setQTime(settings.timerValue||30); } else setMode('register');
-                        }} className="w-full bg-black text-white p-4 rounded-xl font-bold">Start</button>
+                            if(r.found) { 
+                                // Check if profile incomplete
+                                if(!r.student.class || !r.student.section) {
+                                    setStudent({...r.student, ...student});
+                                    setMode('update_profile'); // Force update
+                                } else {
+                                    setStudent({...r.student, ...student}); 
+                                    startGame(); 
+                                }
+                            } else setMode('register');
+                        }} className="w-full bg-black text-white p-4 rounded-xl font-bold">Next</button>
                     </div>
                 </div>
             );
 
-            if(mode === 'register') return (
+            if(mode === 'register' || mode === 'update_profile') return (
                 <div className="min-h-screen bg-indigo-500 flex items-center justify-center p-6">
                     <div className="bg-white w-full max-w-sm p-8 rounded-3xl anim-pop">
-                        <h1 className="text-xl font-bold mb-4">New Student</h1>
-                        <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3" placeholder="Full Name" value={student.name} onChange={e=>setStudent({...student, name:e.target.value})} />
-                        <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-4" placeholder="Roll No" value={student.roll} onChange={e=>setStudent({...student, roll:e.target.value})} />
-                        <button onClick={()=>{ setMode('game'); if(settings.timerMode==='total') setTotalTime((settings.timerValue||10)*60); if(settings.timerMode==='question') setQTime(settings.timerValue||30); }} className="w-full bg-indigo-600 text-white p-3 rounded-xl font-bold">Save & Join</button>
+                        <h1 className="text-xl font-bold mb-4">{mode === 'register' ? 'New Student' : 'Complete Profile'}</h1>
+                        <p className="text-xs text-gray-400 mb-4 font-bold">Please fill in your details to continue.</p>
+                        
+                        {mode === 'register' && (
+                            <>
+                                <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Full Name" value={student.name} onChange={e=>setStudent({...student, name:e.target.value})} />
+                                <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Roll No" value={student.roll} onChange={e=>setStudent({...student, roll:e.target.value})} />
+                            </>
+                        )}
+
+                        <div className="flex gap-2 mb-4">
+                            <select value={student.class} onChange={e=>setStudent({...student, class:e.target.value})} className="w-full bg-gray-100 p-3 rounded-xl font-bold text-sm outline-none">
+                                <option value="">Select Class</option>
+                                {config.classes.map(c=><option key={c} value={c}>{c}</option>)}
+                            </select>
+                            <select value={student.section} onChange={e=>setStudent({...student, section:e.target.value})} className="w-full bg-gray-100 p-3 rounded-xl font-bold text-sm outline-none">
+                                <option value="">Section</option>
+                                {config.sections.map(s=><option key={s} value={s}>{s}</option>)}
+                            </select>
+                        </div>
+                        
+                        <button onClick={()=>{ 
+                            if(!student.class || !student.section || (mode === 'register' && (!student.name || !student.roll))) return alert("Please fill all fields");
+                            startGame(); 
+                        }} className="w-full bg-indigo-600 text-white p-3 rounded-xl font-bold">Start Exam</button>
                     </div>
                 </div>
             );
@@ -1160,9 +1018,7 @@ function getHtml() {
                                 </button>
                             ))}
                         </div>
-                        <div className="mt-8 flex justify-end">
-                             {settings.timerMode === 'total' && <button onClick={next} className="px-6 py-2 bg-white text-black rounded-lg font-bold">Next</button>}
-                        </div>
+                         {settings.timerMode === 'total' && <div className="mt-8 flex justify-end"><button onClick={next} className="px-6 py-2 bg-white text-black rounded-lg font-bold">Next</button></div>}
                     </div>
                 </div>
             );
@@ -1170,72 +1026,26 @@ function getHtml() {
             if(mode === 'summary') return (
                 <div className="min-h-screen bg-slate-900 text-white p-6 overflow-y-auto">
                     <div className="max-w-2xl mx-auto space-y-8 pb-20">
-                        {/* Score Card */}
-                        <div className="bg-slate-800 p-8 rounded-3xl text-center border border-slate-700 shadow-2xl">
-                            <h2 className="text-3xl font-black mb-2 text-white">Exam Complete!</h2>
-                            <div className="text-7xl font-black text-transparent bg-clip-text bg-gradient-to-tr from-green-400 to-blue-500 mb-4">{score} / {exam.questions.length}</div>
-                            <div className="text-sm font-bold bg-slate-700 inline-block px-4 py-1 rounded-full text-slate-300">
-                                {Math.round((score/exam.questions.length)*100)}% Accuracy
-                            </div>
-                        </div>
-
-                        {/* Progress Section */}
-                        {examHistory.length > 0 && (
-                            <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700">
-                                <h3 className="font-bold text-xl mb-4 flex items-center gap-2">📈 Your Progress</h3>
-                                <div className="space-y-3">
-                                    {examHistory.map((h, i) => (
-                                        <div key={i} className="flex items-center gap-4">
-                                            <div className="text-xs font-bold text-slate-500 w-24">{new Date(h.timestamp).toLocaleDateString()}</div>
-                                            <div className="flex-1 bg-slate-700 h-4 rounded-full overflow-hidden">
-                                                <div className="bg-blue-500 h-full" style={{width: \`\${(h.score/h.total)*100}%\`}}></div>
-                                            </div>
-                                            <div className="font-bold text-sm">{h.score}/{h.total}</div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Detailed Review */}
+                        <div className="bg-slate-800 p-8 rounded-3xl text-center border border-slate-700 shadow-2xl"><h2 className="text-3xl font-black mb-2 text-white">Exam Complete!</h2><div className="text-7xl font-black text-transparent bg-clip-text bg-gradient-to-tr from-green-400 to-blue-500 mb-4">{score} / {exam.questions.length}</div><div className="text-sm font-bold bg-slate-700 inline-block px-4 py-1 rounded-full text-slate-300">{Math.round((score/exam.questions.length)*100)}% Accuracy</div></div>
                         <div className="space-y-4">
                             <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
-                            {resultDetails.map((q, i) => (
-                                <div key={i} className={\`p-6 rounded-2xl border \${q.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}>
-                                    <div className="font-bold text-lg mb-3">Q{i+1}. {q.qText}</div>
-                                    <div className="space-y-2">
-                                        {q.choices.map(c => {
-                                            const isSelected = c.id === q.selected;
-                                            const isCorrectChoice = c.id === q.correct;
-                                            let style = "bg-slate-800 border-slate-700 text-slate-400"; 
-                                            
-                                            if (isCorrectChoice) style = "bg-green-500 text-white border-green-500";
-                                            else if (isSelected && !q.isCorrect) style = "bg-red-500 text-white border-red-500";
-                                            
-                                            return (
-                                                <div key={c.id} className={\`p-3 rounded-xl border flex justify-between items-center \${style}\`}>
-                                                    <span className="font-bold">{c.text}</span>
-                                                    {isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">You</span>}
-                                                    {isCorrectChoice && !isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">Correct</span>}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            ))}
+                            {resultDetails.map((q, i) => (<div key={i} className={\`p-6 rounded-2xl border \${q.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}><div className="font-bold text-lg mb-3">Q{i+1}. {q.qText}</div><div className="space-y-2">{q.choices.map(c => { const isSelected = c.id === q.selected; const isCorrectChoice = c.id === q.correct; let style = "bg-slate-800 border-slate-700 text-slate-400"; if (isCorrectChoice) style = "bg-green-500 text-white border-green-500"; else if (isSelected && !q.isCorrect) style = "bg-red-500 text-white border-red-500"; return (<div key={c.id} className={\`p-3 rounded-xl border flex justify-between items-center \${style}\`}> <span className="font-bold">{c.text}</span> {isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">You</span>} {isCorrectChoice && !isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">Correct</span>} </div>); })}</div></div>))}
                         </div>
-
-                        {/* Sticky Action Footer */}
-                        {settings.allowRetakes && (
-                            <div className="fixed bottom-0 left-0 w-full p-4 bg-slate-900/90 backdrop-blur border-t border-slate-800 text-center">
-                                <button onClick={() => window.location.reload()} className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-bold shadow-lg shadow-indigo-500/20 active:scale-95 transition w-full max-w-sm">
-                                    Retake Exam
-                                </button>
-                            </div>
-                        )}
+                        {settings.allowRetakes && (<div className="fixed bottom-0 left-0 w-full p-4 bg-slate-900/90 backdrop-blur border-t border-slate-800 text-center"><button onClick={() => window.location.reload()} className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-bold shadow-lg shadow-indigo-500/20 active:scale-95 transition w-full max-w-sm">Retake Exam</button></div>)}
                     </div>
                 </div>
             );
+        }
+
+        function StudentPortal({ onBack }) {
+             // (Keeping Previous Logic, omitted for brevity as it's largely same but could benefit from class info display if needed)
+             // For single file limits, using a simplified version:
+             const [id, setId] = useState('');
+             const [data, setData] = useState(null);
+             const login = async (e) => { e.preventDefault(); const res = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: id }) }).then(r => r.json()); if(res.found) { setData(res); localStorage.setItem('student_id', id); } else alert("ID not found!"); };
+             useEffect(() => { const saved = localStorage.getItem('student_id'); if(saved && !data) fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: saved }) }).then(r => r.json()).then(r => r.found && setData(r)); }, []);
+             if(!data) return (<div className="min-h-screen bg-orange-50 flex items-center justify-center p-6"><div className="bg-white w-full max-w-sm p-8 rounded-3xl shadow-xl text-center anim-pop"><div className="mb-6 mx-auto w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center text-orange-500"><Icons.Logo /></div><h1 className="text-2xl font-bold text-slate-800 mb-2">Student Hub</h1><form onSubmit={login}><input value={id} onChange={e=>setId(e.target.value)} className="w-full bg-gray-100 p-4 rounded-2xl font-bold text-center text-lg outline-none focus:ring-2 focus:ring-orange-400 mb-4" placeholder="Enter School ID" /><button className="w-full bg-orange-500 text-white font-bold py-4 rounded-2xl btn-bounce shadow-lg shadow-orange-200">Enter</button></form><button onClick={onBack} className="mt-6 text-gray-400 font-bold text-sm">Back to Home</button></div></div>);
+             return (<div className="min-h-screen bg-orange-50 pb-safe"><div className="bg-orange-500 p-8 pb-16 rounded-b-[40px] text-white shadow-lg relative overflow-hidden"><div className="relative z-10"><div className="flex justify-between items-center mb-6"><button onClick={()=>{localStorage.removeItem('student_id'); setData(null);}} className="bg-white/20 p-2 rounded-xl backdrop-blur-sm text-sm font-bold">Logout</button><span className="font-bold opacity-70">My Class</span></div><h1 className="text-3xl font-bold mb-1">Hi, {data.student.name.split(' ')[0]}!</h1><p className="opacity-80 font-bold text-sm tracking-wide">{data.student.school_id} • Class {data.student.class}</p></div></div><div className="px-6 -mt-10 relative z-20 max-w-lg mx-auto space-y-6"><div className="bg-white p-6 rounded-3xl shadow-lg flex justify-around text-center"><div><div className="text-3xl font-black text-slate-800">{data.history.length}</div><div className="text-xs font-bold text-gray-400 uppercase">Exams</div></div><div className="w-px bg-gray-100"></div><div><div className="text-3xl font-black text-green-500">{Math.round(data.history.reduce((a,b)=>a+(b.score/b.total),0)/data.history.length * 100 || 0)}%</div><div className="text-xs font-bold text-gray-400 uppercase">Avg Score</div></div></div><div className="space-y-4 pb-10"><h3 className="font-bold text-slate-400 text-xs uppercase ml-2">Recent Activities</h3>{data.history.map(h => (<div key={h.id} className="bg-white p-5 rounded-2xl shadow-sm border border-orange-50 flex justify-between items-center"><div><h4 className="font-bold text-slate-800">{h.title}</h4><p className="text-xs text-gray-400 font-bold">{new Date(h.timestamp).toLocaleDateString()}</p></div><div className={\`text-lg font-black \${(h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400'}\`}>{h.score}/{h.total}</div></div>))}</div></div></div>);
         }
 
         // --- APP ROOT ---
@@ -1246,73 +1056,19 @@ function getHtml() {
             const [toasts, setToasts] = useState([]);
             const linkId = new URLSearchParams(window.location.search).get('exam');
 
-            useEffect(() => {
-                const checkHash = () => {
-                    const h = window.location.hash.slice(1);
-                    if(h === 'teacher' && user) setRoute('teacher');
-                    else if(h === 'student') setRoute('student');
-                    else if(h === 'admin' && user?.role === 'super_admin') setRoute('admin');
-                    else if(!linkId) setRoute('landing');
-                }
-                window.addEventListener('hashchange', checkHash);
-                return () => window.removeEventListener('hashchange', checkHash);
-            }, [user]);
-
-            useEffect(() => {
-                try {
-                    const u = localStorage.getItem('mc_user');
-                    if(u) setUser(JSON.parse(u));
-                } catch(e) { console.error(e); }
-                fetch('/api/system/status')
-                    .then(r=>r.json())
-                    .then(setStatus)
-                    .catch(e=>setStatus({installed:false, hasAdmin:false})); 
-            }, []);
-
-            const loginUser = (u) => {
-                setUser(u);
-                localStorage.setItem('mc_user', JSON.stringify(u));
-                window.location.hash = u.role === 'super_admin' ? 'admin' : 'teacher';
-            };
-
-            const logoutUser = () => {
-                setUser(null);
-                localStorage.removeItem('mc_user');
-                window.location.hash = '';
-                setRoute('landing');
-            };
-
-            const addToast = (msg, type='success') => {
-                const id = Date.now();
-                setToasts(p => [...p, {id, msg, type}]);
-                setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000);
-            };
+            useEffect(() => { const checkHash = () => { const h = window.location.hash.slice(1); if(h === 'teacher' && user) setRoute('teacher'); else if(h === 'student') setRoute('student'); else if(h === 'admin' && user?.role === 'super_admin') setRoute('admin'); else if(!linkId) setRoute('landing'); }; window.addEventListener('hashchange', checkHash); return () => window.removeEventListener('hashchange', checkHash); }, [user]);
+            useEffect(() => { try { const u = localStorage.getItem('mc_user'); if(u) setUser(JSON.parse(u)); } catch(e) {} fetch('/api/system/status').then(r=>r.json()).then(setStatus).catch(e=>setStatus({installed:false, hasAdmin:false})); }, []);
+            const loginUser = (u) => { setUser(u); localStorage.setItem('mc_user', JSON.stringify(u)); window.location.hash = u.role === 'super_admin' ? 'admin' : 'teacher'; };
+            const logoutUser = () => { setUser(null); localStorage.removeItem('mc_user'); window.location.hash = ''; setRoute('landing'); };
+            const addToast = (msg, type='success') => { const id = Date.now(); setToasts(p => [...p, {id, msg, type}]); setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000); };
 
             if(linkId) return <ErrorBoundary><StudentExamApp linkId={linkId} /></ErrorBoundary>;
             if(!status) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400 animate-pulse">Loading My Class...</div>;
-
             if(!status.hasAdmin) return <ErrorBoundary><><Setup onComplete={() => setStatus({hasAdmin:true})} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
-
             if(route === 'student') return <ErrorBoundary><StudentPortal onBack={()=>window.location.hash=''} /></ErrorBoundary>;
-            
-            if(user) {
-                if(user.role === 'super_admin') return <ErrorBoundary><><AdminView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
-                return <ErrorBoundary><><TeacherView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
-            }
-
+            if(user) { if(user.role === 'super_admin') return <ErrorBoundary><><AdminView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>; return <ErrorBoundary><><TeacherView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>; }
             if(route === 'login') return <ErrorBoundary><><Login onLogin={loginUser} addToast={addToast} onBack={()=>setRoute('landing')} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
-
-            return (
-                <div className="min-h-screen bg-orange-50 flex flex-col items-center justify-center p-6 text-center">
-                    <div className="w-24 h-24 bg-white rounded-[30px] shadow-xl flex items-center justify-center text-orange-500 mb-6 anim-pop"><Icons.Logo /></div>
-                    <h1 className="text-4xl font-black text-slate-800 mb-2">My Class</h1>
-                    <p className="text-gray-500 font-bold mb-10">Fun Learning & Testing Platform</p>
-                    <div className="w-full max-w-xs space-y-4">
-                        <button onClick={()=>{window.location.hash='student'; setRoute('student')}} className="w-full bg-indigo-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-indigo-200 btn-bounce">Student Hub</button>
-                        <button onClick={()=>setRoute('login')} className="w-full bg-white text-slate-700 p-4 rounded-2xl font-bold shadow-sm border border-gray-100 btn-bounce">Teacher Login</button>
-                    </div>
-                </div>
-            );
+            return ( <div className="min-h-screen bg-orange-50 flex flex-col items-center justify-center p-6 text-center"> <div className="w-24 h-24 bg-white rounded-[30px] shadow-xl flex items-center justify-center text-orange-500 mb-6 anim-pop"><Icons.Logo /></div> <h1 className="text-4xl font-black text-slate-800 mb-2">My Class</h1> <p className="text-gray-500 font-bold mb-10">Fun Learning & Testing Platform</p> <div className="w-full max-w-xs space-y-4"> <button onClick={()=>{window.location.hash='student'; setRoute('student')}} className="w-full bg-indigo-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-indigo-200 btn-bounce">Student Hub</button> <button onClick={()=>setRoute('login')} className="w-full bg-white text-slate-700 p-4 rounded-2xl font-bold shadow-sm border border-gray-100 btn-bounce">Teacher Login</button> </div> </div> );
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
