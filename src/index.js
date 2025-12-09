@@ -1,8 +1,7 @@
 /**
  * Cloudflare Worker - My Class (SaaS Masterclass)
  * - Branding: "My Class" (Playful, Kiddy, Mobile-First)
- * - Features: Persisted Session, Hash Routing, Mobile Bottom Nav, Deep Analytics, JSON Import
- * - New: Class/Section Management, Student Filtering, Profile Completion, Robust Image Handling
+ * - Features: Class/Section Management, Student Filtering, robust Image Handling, Analytics
  */
 
 export default {
@@ -56,14 +55,16 @@ async function handleApi(request, env, path, url) {
       try {
         await env.DB.batch([
           env.DB.prepare("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT, name TEXT, role TEXT DEFAULT 'teacher', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
+          // Updated students table with class and section
           env.DB.prepare("CREATE TABLE IF NOT EXISTS students (id INTEGER PRIMARY KEY AUTOINCREMENT, school_id TEXT UNIQUE, name TEXT, roll TEXT, class TEXT, section TEXT, extra_info TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
-          env.DB.prepare("CREATE TABLE IF NOT EXISTS school_config (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT)"), // type: 'class' | 'section'
+          // New table for School Configuration (Classes/Sections)
+          env.DB.prepare("CREATE TABLE IF NOT EXISTS school_config (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT)"), 
           env.DB.prepare("CREATE TABLE IF NOT EXISTS exams (id INTEGER PRIMARY KEY AUTOINCREMENT, link_id TEXT UNIQUE, title TEXT, teacher_id INTEGER, settings TEXT, is_active BOOLEAN DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
           env.DB.prepare("CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER, text TEXT, image_key TEXT, choices TEXT)"),
           env.DB.prepare("CREATE TABLE IF NOT EXISTS attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER, student_db_id INTEGER, score INTEGER, total INTEGER, details TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(student_db_id) REFERENCES students(id))")
         ]);
         
-        // Migration for existing tables if needed (simplistic approach for single-file)
+        // Manual Migration: Add columns if they don't exist (for existing databases)
         try { await env.DB.prepare("ALTER TABLE students ADD COLUMN class TEXT").run(); } catch(e) {}
         try { await env.DB.prepare("ALTER TABLE students ADD COLUMN section TEXT").run(); } catch(e) {}
 
@@ -203,16 +204,18 @@ async function handleApi(request, env, path, url) {
 
       let image_key = null;
       
-      // If a new file is uploaded, use it
+      // Logic:
+      // 1. If 'image' (file) is present, upload it and use new key.
+      // 2. If no file, check 'existing_image_key'.
+      //    - If 'existing_image_key' is present (string), keep it.
+      //    - If neither is present, it means image was removed or never existed -> image_key remains null.
+      
       if (image && image.size > 0) {
         image_key = crypto.randomUUID();
         await env.BUCKET.put(image_key, image);
-      } 
-      // If no new file, but we have an existing key, keep it
-      else if (existing_image_key && existing_image_key !== 'null') {
+      } else if (existing_image_key && existing_image_key !== 'null' && existing_image_key !== 'undefined') {
         image_key = existing_image_key;
       }
-      // If both are null/missing, image_key remains null (deletion)
 
       await env.DB.prepare("INSERT INTO questions (exam_id, text, image_key, choices) VALUES (?, ?, ?, ?)")
         .bind(exam_id, text, image_key, choices).run();
@@ -275,8 +278,9 @@ async function handleApi(request, env, path, url) {
       if(!exam) return Response.json({ error: "Exam not found" }, { status: 404 });
       
       const questions = await env.DB.prepare("SELECT * FROM questions WHERE exam_id = ?").bind(exam.id).all();
-      // Fetch school config for dropdowns
+      // Fetch school config for dropdowns in Student App
       const config = await env.DB.prepare("SELECT * FROM school_config").all();
+      
       return Response.json({ exam, questions: questions.results, config: config.results });
     }
     
@@ -303,7 +307,7 @@ async function handleApi(request, env, path, url) {
           .bind(student.school_id, student.name, student.roll, student.class || null, student.section || null).run();
         studentRecord = { id: res.meta.last_row_id };
       } else {
-        // Always update details to latest provided
+        // Always update details (important for Class/Section updates)
         await env.DB.prepare("UPDATE students SET name = ?, roll = ?, class = ?, section = ? WHERE id = ?")
             .bind(student.name, student.roll, student.class, student.section, studentRecord.id).run();
       }
@@ -444,13 +448,45 @@ function getHtml() {
         // --- COMPONENTS ---
 
         function Setup({ onComplete, addToast }) { 
-             const handle = async (e) => { e.preventDefault(); await fetch('/api/system/init', { method: 'POST' }); const res = await fetch('/api/auth/setup-admin', { method: 'POST', body: JSON.stringify({ name: e.target.name.value, username: e.target.username.value, password: e.target.password.value }) }); if(res.ok) onComplete(); else addToast("Failed", 'error'); };
-             return (<div className="min-h-screen bg-orange-50 flex items-center justify-center p-4"><form onSubmit={handle} className="bg-white p-8 rounded-3xl w-full max-w-sm shadow-xl"><h2 className="font-bold text-xl mb-4">Setup School</h2><input name="name" placeholder="School Name" className="w-full bg-gray-50 p-3 rounded-xl mb-3 font-bold" /><input name="username" placeholder="Admin User" className="w-full bg-gray-50 p-3 rounded-xl mb-3 font-bold" /><input name="password" type="password" placeholder="Password" className="w-full bg-gray-50 p-3 rounded-xl mb-4 font-bold" /><button className="w-full bg-orange-500 text-white p-3 rounded-xl font-bold">Start</button></form></div>);
+             const handle = async (e) => { 
+                 e.preventDefault(); 
+                 await fetch('/api/system/init', { method: 'POST' }); 
+                 const res = await fetch('/api/auth/setup-admin', { method: 'POST', body: JSON.stringify({ name: e.target.name.value, username: e.target.username.value, password: e.target.password.value }) }); 
+                 if(res.ok) onComplete(); 
+                 else addToast("Failed", 'error'); 
+            };
+             return (
+                <div className="min-h-screen bg-orange-50 flex items-center justify-center p-4">
+                    <form onSubmit={handle} className="bg-white p-8 rounded-3xl w-full max-w-sm shadow-xl">
+                        <h2 className="font-bold text-xl mb-4">Setup School</h2>
+                        <input name="name" placeholder="School Name" className="w-full bg-gray-50 p-3 rounded-xl mb-3 font-bold" />
+                        <input name="username" placeholder="Admin User" className="w-full bg-gray-50 p-3 rounded-xl mb-3 font-bold" />
+                        <input name="password" type="password" placeholder="Password" className="w-full bg-gray-50 p-3 rounded-xl mb-4 font-bold" />
+                        <button className="w-full bg-orange-500 text-white p-3 rounded-xl font-bold">Start</button>
+                    </form>
+                </div>
+            );
         }
 
         function Login({ onLogin, addToast, onBack }) { 
-             const handle = async (e) => { e.preventDefault(); const res = await fetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ username: e.target.username.value, password: e.target.password.value }) }); const data = await res.json(); if(data.success) onLogin(data.user); else addToast("Wrong Password!", 'error'); };
-             return (<div className="min-h-screen bg-orange-50 flex items-center justify-center p-4"><form onSubmit={handle} className="bg-white p-8 rounded-3xl w-full max-w-sm shadow-xl relative"><button type="button" onClick={onBack} className="absolute top-6 left-6 font-bold text-gray-400">Back</button><h2 className="font-bold text-2xl mb-6 text-center">Teacher Login</h2><input name="username" placeholder="Username" className="w-full bg-gray-50 p-4 rounded-xl mb-4 font-bold outline-none focus:ring-2 focus:ring-orange-200" /><input name="password" type="password" placeholder="Password" className="w-full bg-gray-50 p-4 rounded-xl mb-6 font-bold outline-none focus:ring-2 focus:ring-orange-200" /><button className="w-full bg-slate-900 text-white p-4 rounded-xl font-bold shadow-lg btn-bounce">Sign In</button></form></div>);
+             const handle = async (e) => { 
+                 e.preventDefault(); 
+                 const res = await fetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ username: e.target.username.value, password: e.target.password.value }) }); 
+                 const data = await res.json(); 
+                 if(data.success) onLogin(data.user); 
+                 else addToast("Wrong Password!", 'error'); 
+            };
+             return (
+                <div className="min-h-screen bg-orange-50 flex items-center justify-center p-4">
+                    <form onSubmit={handle} className="bg-white p-8 rounded-3xl w-full max-w-sm shadow-xl relative">
+                        <button type="button" onClick={onBack} className="absolute top-6 left-6 font-bold text-gray-400">Back</button>
+                        <h2 className="font-bold text-2xl mb-6 text-center">Teacher Login</h2>
+                        <input name="username" placeholder="Username" className="w-full bg-gray-50 p-4 rounded-xl mb-4 font-bold outline-none focus:ring-2 focus:ring-orange-200" />
+                        <input name="password" type="password" placeholder="Password" className="w-full bg-gray-50 p-4 rounded-xl mb-6 font-bold outline-none focus:ring-2 focus:ring-orange-200" />
+                        <button className="w-full bg-slate-900 text-white p-4 rounded-xl font-bold shadow-lg btn-bounce">Sign In</button>
+                    </form>
+                </div>
+            );
         }
 
         function DashboardLayout({ user, onLogout, title, action, children, activeTab, onTabChange }) {
@@ -775,11 +811,9 @@ function getHtml() {
                         fd.append('text', q.text);
                         fd.append('choices', JSON.stringify(q.choices));
                         
-                        // Handle Image Deletion vs Upload vs Keep
+                        // Handle Image Logic
                         if (q.image === null && q.image_key === null) {
-                           // Explicitly removed: send nothing or handle in backend if needed. 
-                           // Current backend logic: if image is missing and existing_image_key is missing, insert NULL.
-                           // So we don't append anything.
+                           // No op (Backend will store null if no existing_key sent)
                         } else if (q.image instanceof File) {
                            fd.append('image', q.image);
                         } else if (q.image_key) {
@@ -1038,14 +1072,76 @@ function getHtml() {
         }
 
         function StudentPortal({ onBack }) {
-             // (Keeping Previous Logic, omitted for brevity as it's largely same but could benefit from class info display if needed)
-             // For single file limits, using a simplified version:
              const [id, setId] = useState('');
              const [data, setData] = useState(null);
-             const login = async (e) => { e.preventDefault(); const res = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: id }) }).then(r => r.json()); if(res.found) { setData(res); localStorage.setItem('student_id', id); } else alert("ID not found!"); };
-             useEffect(() => { const saved = localStorage.getItem('student_id'); if(saved && !data) fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: saved }) }).then(r => r.json()).then(r => r.found && setData(r)); }, []);
-             if(!data) return (<div className="min-h-screen bg-orange-50 flex items-center justify-center p-6"><div className="bg-white w-full max-w-sm p-8 rounded-3xl shadow-xl text-center anim-pop"><div className="mb-6 mx-auto w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center text-orange-500"><Icons.Logo /></div><h1 className="text-2xl font-bold text-slate-800 mb-2">Student Hub</h1><form onSubmit={login}><input value={id} onChange={e=>setId(e.target.value)} className="w-full bg-gray-100 p-4 rounded-2xl font-bold text-center text-lg outline-none focus:ring-2 focus:ring-orange-400 mb-4" placeholder="Enter School ID" /><button className="w-full bg-orange-500 text-white font-bold py-4 rounded-2xl btn-bounce shadow-lg shadow-orange-200">Enter</button></form><button onClick={onBack} className="mt-6 text-gray-400 font-bold text-sm">Back to Home</button></div></div>);
-             return (<div className="min-h-screen bg-orange-50 pb-safe"><div className="bg-orange-500 p-8 pb-16 rounded-b-[40px] text-white shadow-lg relative overflow-hidden"><div className="relative z-10"><div className="flex justify-between items-center mb-6"><button onClick={()=>{localStorage.removeItem('student_id'); setData(null);}} className="bg-white/20 p-2 rounded-xl backdrop-blur-sm text-sm font-bold">Logout</button><span className="font-bold opacity-70">My Class</span></div><h1 className="text-3xl font-bold mb-1">Hi, {data.student.name.split(' ')[0]}!</h1><p className="opacity-80 font-bold text-sm tracking-wide">{data.student.school_id} • Class {data.student.class}</p></div></div><div className="px-6 -mt-10 relative z-20 max-w-lg mx-auto space-y-6"><div className="bg-white p-6 rounded-3xl shadow-lg flex justify-around text-center"><div><div className="text-3xl font-black text-slate-800">{data.history.length}</div><div className="text-xs font-bold text-gray-400 uppercase">Exams</div></div><div className="w-px bg-gray-100"></div><div><div className="text-3xl font-black text-green-500">{Math.round(data.history.reduce((a,b)=>a+(b.score/b.total),0)/data.history.length * 100 || 0)}%</div><div className="text-xs font-bold text-gray-400 uppercase">Avg Score</div></div></div><div className="space-y-4 pb-10"><h3 className="font-bold text-slate-400 text-xs uppercase ml-2">Recent Activities</h3>{data.history.map(h => (<div key={h.id} className="bg-white p-5 rounded-2xl shadow-sm border border-orange-50 flex justify-between items-center"><div><h4 className="font-bold text-slate-800">{h.title}</h4><p className="text-xs text-gray-400 font-bold">{new Date(h.timestamp).toLocaleDateString()}</p></div><div className={\`text-lg font-black \${(h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400'}\`}>{h.score}/{h.total}</div></div>))}</div></div></div>);
+             
+             const login = async (e) => { 
+                 e.preventDefault(); 
+                 const res = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: id }) }).then(r => r.json()); 
+                 if(res.found) { setData(res); localStorage.setItem('student_id', id); } 
+                 else alert("ID not found!"); 
+            };
+             
+             useEffect(() => { 
+                 const saved = localStorage.getItem('student_id'); 
+                 if(saved && !data) {
+                     fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: saved }) }).then(r => r.json()).then(r => r.found && setData(r)); 
+                 }
+            }, []);
+
+             if(!data) return (
+                <div className="min-h-screen bg-orange-50 flex items-center justify-center p-6">
+                    <div className="bg-white w-full max-w-sm p-8 rounded-3xl shadow-xl text-center anim-pop">
+                        <div className="mb-6 mx-auto w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center text-orange-500"><Icons.Logo /></div>
+                        <h1 className="text-2xl font-bold text-slate-800 mb-2">Student Hub</h1>
+                        <form onSubmit={login}>
+                            <input value={id} onChange={e=>setId(e.target.value)} className="w-full bg-gray-100 p-4 rounded-2xl font-bold text-center text-lg outline-none focus:ring-2 focus:ring-orange-400 mb-4" placeholder="Enter School ID" />
+                            <button className="w-full bg-orange-500 text-white font-bold py-4 rounded-2xl btn-bounce shadow-lg shadow-orange-200">Enter</button>
+                        </form>
+                        <button onClick={onBack} className="mt-6 text-gray-400 font-bold text-sm">Back to Home</button>
+                    </div>
+                </div>
+            );
+
+             return (
+                <div className="min-h-screen bg-orange-50 pb-safe">
+                    <div className="bg-orange-500 p-8 pb-16 rounded-b-[40px] text-white shadow-lg relative overflow-hidden">
+                        <div className="relative z-10">
+                            <div className="flex justify-between items-center mb-6">
+                                <button onClick={()=>{localStorage.removeItem('student_id'); setData(null);}} className="bg-white/20 p-2 rounded-xl backdrop-blur-sm text-sm font-bold">Logout</button>
+                                <span className="font-bold opacity-70">My Class</span>
+                            </div>
+                            <h1 className="text-3xl font-bold mb-1">Hi, {data.student.name.split(' ')[0]}!</h1>
+                            <p className="opacity-80 font-bold text-sm tracking-wide">{data.student.school_id} • Class {data.student.class || 'N/A'}</p>
+                        </div>
+                    </div>
+                    <div className="px-6 -mt-10 relative z-20 max-w-lg mx-auto space-y-6">
+                        <div className="bg-white p-6 rounded-3xl shadow-lg flex justify-around text-center">
+                            <div>
+                                <div className="text-3xl font-black text-slate-800">{data.history.length}</div>
+                                <div className="text-xs font-bold text-gray-400 uppercase">Exams</div>
+                            </div>
+                            <div className="w-px bg-gray-100"></div>
+                            <div>
+                                <div className="text-3xl font-black text-green-500">{Math.round(data.history.reduce((a,b)=>a+(b.score/b.total),0)/data.history.length * 100 || 0)}%</div>
+                                <div className="text-xs font-bold text-gray-400 uppercase">Avg Score</div>
+                            </div>
+                        </div>
+                        <div className="space-y-4 pb-10">
+                            <h3 className="font-bold text-slate-400 text-xs uppercase ml-2">Recent Activities</h3>
+                            {data.history.map(h => (
+                                <div key={h.id} className="bg-white p-5 rounded-2xl shadow-sm border border-orange-50 flex justify-between items-center">
+                                    <div>
+                                        <h4 className="font-bold text-slate-800">{h.title}</h4>
+                                        <p className="text-xs text-gray-400 font-bold">{new Date(h.timestamp).toLocaleDateString()}</p>
+                                    </div>
+                                    <div className={\`text-lg font-black \${(h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400'}\`}>{h.score}/{h.total}</div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
         }
 
         // --- APP ROOT ---
@@ -1056,8 +1152,28 @@ function getHtml() {
             const [toasts, setToasts] = useState([]);
             const linkId = new URLSearchParams(window.location.search).get('exam');
 
-            useEffect(() => { const checkHash = () => { const h = window.location.hash.slice(1); if(h === 'teacher' && user) setRoute('teacher'); else if(h === 'student') setRoute('student'); else if(h === 'admin' && user?.role === 'super_admin') setRoute('admin'); else if(!linkId) setRoute('landing'); }; window.addEventListener('hashchange', checkHash); return () => window.removeEventListener('hashchange', checkHash); }, [user]);
-            useEffect(() => { try { const u = localStorage.getItem('mc_user'); if(u) setUser(JSON.parse(u)); } catch(e) {} fetch('/api/system/status').then(r=>r.json()).then(setStatus).catch(e=>setStatus({installed:false, hasAdmin:false})); }, []);
+            // Routing
+            useEffect(() => { 
+                const checkHash = () => { 
+                    const h = window.location.hash.slice(1); 
+                    if(h === 'teacher' && user) setRoute('teacher'); 
+                    else if(h === 'student') setRoute('student'); 
+                    else if(h === 'admin' && user?.role === 'super_admin') setRoute('admin'); 
+                    else if(!linkId) setRoute('landing'); 
+                }; 
+                window.addEventListener('hashchange', checkHash); 
+                return () => window.removeEventListener('hashchange', checkHash); 
+            }, [user]);
+
+            // Persist User
+            useEffect(() => { 
+                try { 
+                    const u = localStorage.getItem('mc_user'); 
+                    if(u) setUser(JSON.parse(u)); 
+                } catch(e) {} 
+                fetch('/api/system/status').then(r=>r.json()).then(setStatus).catch(e=>setStatus({installed:false, hasAdmin:false})); 
+            }, []);
+
             const loginUser = (u) => { setUser(u); localStorage.setItem('mc_user', JSON.stringify(u)); window.location.hash = u.role === 'super_admin' ? 'admin' : 'teacher'; };
             const logoutUser = () => { setUser(null); localStorage.removeItem('mc_user'); window.location.hash = ''; setRoute('landing'); };
             const addToast = (msg, type='success') => { const id = Date.now(); setToasts(p => [...p, {id, msg, type}]); setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000); };
@@ -1066,9 +1182,25 @@ function getHtml() {
             if(!status) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400 animate-pulse">Loading My Class...</div>;
             if(!status.hasAdmin) return <ErrorBoundary><><Setup onComplete={() => setStatus({hasAdmin:true})} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
             if(route === 'student') return <ErrorBoundary><StudentPortal onBack={()=>window.location.hash=''} /></ErrorBoundary>;
-            if(user) { if(user.role === 'super_admin') return <ErrorBoundary><><AdminView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>; return <ErrorBoundary><><TeacherView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>; }
+            
+            if(user) { 
+                if(user.role === 'super_admin') return <ErrorBoundary><><AdminView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>; 
+                return <ErrorBoundary><><TeacherView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>; 
+            }
+            
             if(route === 'login') return <ErrorBoundary><><Login onLogin={loginUser} addToast={addToast} onBack={()=>setRoute('landing')} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
-            return ( <div className="min-h-screen bg-orange-50 flex flex-col items-center justify-center p-6 text-center"> <div className="w-24 h-24 bg-white rounded-[30px] shadow-xl flex items-center justify-center text-orange-500 mb-6 anim-pop"><Icons.Logo /></div> <h1 className="text-4xl font-black text-slate-800 mb-2">My Class</h1> <p className="text-gray-500 font-bold mb-10">Fun Learning & Testing Platform</p> <div className="w-full max-w-xs space-y-4"> <button onClick={()=>{window.location.hash='student'; setRoute('student')}} className="w-full bg-indigo-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-indigo-200 btn-bounce">Student Hub</button> <button onClick={()=>setRoute('login')} className="w-full bg-white text-slate-700 p-4 rounded-2xl font-bold shadow-sm border border-gray-100 btn-bounce">Teacher Login</button> </div> </div> );
+            
+            return ( 
+                <div className="min-h-screen bg-orange-50 flex flex-col items-center justify-center p-6 text-center"> 
+                    <div className="w-24 h-24 bg-white rounded-[30px] shadow-xl flex items-center justify-center text-orange-500 mb-6 anim-pop"><Icons.Logo /></div> 
+                    <h1 className="text-4xl font-black text-slate-800 mb-2">My Class</h1> 
+                    <p className="text-gray-500 font-bold mb-10">Fun Learning & Testing Platform</p> 
+                    <div className="w-full max-w-xs space-y-4"> 
+                        <button onClick={()=>{window.location.hash='student'; setRoute('student')}} className="w-full bg-indigo-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-indigo-200 btn-bounce">Student Hub</button> 
+                        <button onClick={()=>setRoute('login')} className="w-full bg-white text-slate-700 p-4 rounded-2xl font-bold shadow-sm border border-gray-100 btn-bounce">Teacher Login</button> 
+                    </div> 
+                </div> 
+            );
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -1077,3 +1209,5 @@ function getHtml() {
 </body>
 </html>`;
 }
+
+
