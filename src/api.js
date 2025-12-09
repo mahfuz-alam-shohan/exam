@@ -152,6 +152,8 @@ export async function handleApi(request, env, path, url) {
 
     // 2. CONFIG (Classes/Sections)
     if (path === '/api/config/get' && method === 'GET') {
+      const user = await verifyUser(request, env);
+      if (!user) return new Response("Unauthorized", { status: 401 });
       try {
         const data = await env.DB.prepare("SELECT * FROM school_config ORDER BY value ASC").all();
         return Response.json(data.results);
@@ -371,6 +373,8 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/teacher/exams' && method === 'GET') {
+      const user = await verifyUser(request, env);
+      if (!user) return new Response("Unauthorized", { status: 401 });
       const teacherId = url.searchParams.get('teacher_id');
       const page = getPage(url);
       const offset = (page - 1) * 20;
@@ -384,6 +388,8 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/teacher/exam-details' && method === 'GET') {
+      const user = await verifyUser(request, env);
+      if (!user) return new Response("Unauthorized", { status: 401 });
       const examId = url.searchParams.get('id');
       const exam = await env.DB.prepare("SELECT * FROM exams WHERE id = ?").bind(examId).first();
       const questions = await env.DB.prepare("SELECT * FROM questions WHERE exam_id = ?").bind(examId).all();
@@ -489,6 +495,8 @@ export async function handleApi(request, env, path, url) {
 
     // 7. ANALYTICS
     if (path === '/api/analytics/exam' && method === 'GET') {
+      const user = await verifyUser(request, env);
+      if (!user) return new Response("Unauthorized", { status: 401 });
       const examId = url.searchParams.get('exam_id');
       try {
         const results = await env.DB.prepare(`
@@ -505,6 +513,10 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/students/list' && method === 'GET') {
+      const user = await verifyUser(request, env);
+      if (!user || (user.role !== 'teacher' && user.role !== 'super_admin')) {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const page = getPage(url);
       const offset = (page - 1) * 20;
       try {

@@ -93,7 +93,10 @@ ${getHeadContent()}
 
         // Unified JSON fetch helper for consistent headers & error handling
         const apiFetch = async (url, options = {}) => {
-            const opts = { ...options, headers: { ...(options.headers || {}) } };
+            const token = localStorage.getItem('mc_token');
+            const headers = { ...(options.headers || {}) };
+            if (token) headers['Authorization'] = 'Bearer ' + token;
+            const opts = { ...options, headers };
             if (options.body && !(options.body instanceof FormData)) {
                 opts.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
                 if (!opts.headers['Content-Type']) opts.headers['Content-Type'] = 'application/json';
@@ -150,7 +153,7 @@ ${getHeadContent()}
                  e.preventDefault();
                  try {
                     const data = await apiFetch('/api/auth/login', { method: 'POST', body: { username: e.target.username.value, password: e.target.password.value } });
-                    if(data.success) onLogin(data.user);
+                    if(data.success) onLogin(data.user, data.token);
                     else addToast("Invalid credentials", 'error');
                  } catch(err) {
                     addToast(err.message || 'Login failed', 'error');
@@ -1004,8 +1007,8 @@ ${getHeadContent()}
                 fetch('/api/system/status').then(r=>r.json()).then(setStatus).catch(e=>setStatus({installed:false, hasAdmin:false})); 
             }, []);
 
-            const loginUser = (u) => { setUser(u); localStorage.setItem('mc_user', JSON.stringify(u)); window.location.hash = u.role === 'super_admin' ? 'admin' : 'teacher'; };
-            const logoutUser = () => { setUser(null); localStorage.removeItem('mc_user'); window.location.hash = ''; setRoute('landing'); };
+            const loginUser = (u, t) => { setUser(u); localStorage.setItem('mc_user', JSON.stringify(u)); if(t) localStorage.setItem('mc_token', t); window.location.hash = u.role === 'super_admin' ? 'admin' : 'teacher'; };
+            const logoutUser = () => { setUser(null); localStorage.removeItem('mc_user'); localStorage.removeItem('mc_token'); window.location.hash = ''; setRoute('landing'); };
             const addToast = (msg, type='success') => { const id = Date.now(); setToasts(p => [...p, {id, msg, type}]); setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000); };
 
             if(linkId) return <ErrorBoundary><StudentExamApp linkId={linkId} /></ErrorBoundary>;
