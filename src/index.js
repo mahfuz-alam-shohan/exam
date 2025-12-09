@@ -843,10 +843,10 @@ function getHtml() {
                                 <div className="space-y-3">
                                     {activeQ.choices.map((c, i) => (
                                         <div key={c.id} className="flex items-center gap-3">
-                                            <div onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => ({ ...x, isCorrect: x.id === c.id })) })} className={`w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition \${c.isCorrect ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300'}`}>
+                                            <div onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => ({ ...x, isCorrect: x.id === c.id })) })} className={`w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition ${c.isCorrect ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300'}`}>
                                                 {c.isCorrect && <span className="font-bold text-sm">✓</span>}
                                             </div>
-                                            <input value={c.text} onChange={e => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => x.id === c.id ? { ...x, text: e.target.value } : x) })} className="flex-1 bg-gray-50 p-3 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-orange-200" placeholder={`Option \${i + 1}`} />
+                                            <input value={c.text} onChange={e => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => x.id === c.id ? { ...x, text: e.target.value } : x) })} className="flex-1 bg-gray-50 p-3 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-orange-200" placeholder={`Option ${i + 1}`} />
                                             <button onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.filter(x => x.id !== c.id) })} className="text-gray-300 px-2">×</button>
                                         </div>
                                     ))}
