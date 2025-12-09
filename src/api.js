@@ -17,6 +17,100 @@ async function hashPassword(password) {
     .join('');
 }
 
+const encoder = new TextEncoder();
+
+function toBase64Url(str) {
+  return btoa(unescape(encodeURIComponent(str))).replace(/=+$/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+function fromBase64Url(str) {
+  const padded = str.replace(/-/g, '+').replace(/_/g, '/');
+  const padLength = (4 - (padded.length % 4)) % 4;
+  const paddedStr = padded + '='.repeat(padLength);
+  return decodeURIComponent(escape(atob(paddedStr)));
+}
+
+async function getHmacKey(secret) {
+  return crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify']
+  );
+}
+
+async function createToken(payload, secret) {
+  if (!secret) throw new Error('Missing AUTH_SECRET');
+
+  const header = toBase64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const body = toBase64Url(JSON.stringify(payload));
+  const data = `${header}.${body}`;
+
+  const key = await getHmacKey(secret);
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
+  const signatureB64 = toBase64Url(String.fromCharCode(...new Uint8Array(signature)));
+
+  return `${data}.${signatureB64}`;
+}
+
+async function verifyToken(token, secret) {
+  if (!secret) throw new Error('Missing AUTH_SECRET');
+  const parts = token.split('.');
+  if (parts.length !== 3) throw new Error('Invalid token');
+
+  const [headerB64, payloadB64, signatureB64] = parts;
+  const data = `${headerB64}.${payloadB64}`;
+
+  const key = await getHmacKey(secret);
+  const signatureBytes = Uint8Array.from(fromBase64Url(signatureB64), (c) => c.charCodeAt(0));
+  const valid = await crypto.subtle.verify('HMAC', key, signatureBytes, encoder.encode(data));
+  if (!valid) throw new Error('Invalid signature');
+
+  const payload = JSON.parse(fromBase64Url(payloadB64));
+  if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+    throw new Error('Token expired');
+  }
+  return payload;
+}
+
+async function authenticate(request, env) {
+  const authHeader = request.headers.get('authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { ok: false };
+  }
+
+  try {
+    const token = authHeader.replace('Bearer ', '').trim();
+    const user = await verifyToken(token, env.AUTH_SECRET);
+    return { ok: true, user };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+async function requireAuth(request, env, roles = []) {
+  const auth = await authenticate(request, env);
+  if (!auth.ok) {
+    return { response: new Response('Unauthorized', { status: 401 }) };
+  }
+
+  if (roles.length > 0 && !roles.includes(auth.user.role)) {
+    return { response: new Response('Forbidden', { status: 403 }) };
+  }
+
+  return { user: auth.user };
+}
+
+async function ensureExamAccess(env, examId, user) {
+  const exam = await env.DB.prepare('SELECT id, teacher_id FROM exams WHERE id = ?').bind(examId).first();
+  if (!exam) return { response: Response.json({ error: 'Exam not found' }, { status: 404 }) };
+  if (user.role !== 'super_admin' && exam.teacher_id !== user.id) {
+    return { response: new Response('Forbidden', { status: 403 }) };
+  }
+  return { exam };
+}
+
 export async function handleApi(request, env, path, url) {
   const method = request.method;
 
@@ -52,10 +146,8 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/system/reset' && method === 'POST') {
-      const userRole = request.headers.get('x-user-role');
-      if (userRole !== 'super_admin') {
-        return new Response("Unauthorized", { status: 403 });
-      }
+      const auth = await requireAuth(request, env, ['super_admin']);
+      if (auth.response) return auth.response;
       try {
         await env.DB.batch([
           env.DB.prepare("DELETE FROM students"),
@@ -72,6 +164,8 @@ export async function handleApi(request, env, path, url) {
 
     // 2. CONFIG (Classes/Sections)
     if (path === '/api/config/get' && method === 'GET') {
+      const auth = await requireAuth(request, env, ['teacher', 'super_admin']);
+      if (auth.response) return auth.response;
       try {
         const data = await env.DB.prepare("SELECT * FROM school_config ORDER BY value ASC").all();
         return Response.json(data.results);
@@ -82,6 +176,8 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/config/add' && method === 'POST') {
+      const auth = await requireAuth(request, env, ['teacher', 'super_admin']);
+      if (auth.response) return auth.response;
       const { type, value } = await readJson(request);
       if (!type || !value) {
         return Response.json({ error: 'Missing type or value' }, { status: 400 });
@@ -91,6 +187,8 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/config/delete' && method === 'POST') {
+      const auth = await requireAuth(request, env, ['teacher', 'super_admin']);
+      if (auth.response) return auth.response;
       const { id } = await readJson(request);
       if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
       await env.DB.prepare("DELETE FROM school_config WHERE id = ?").bind(id).run();
@@ -110,9 +208,11 @@ export async function handleApi(request, env, path, url) {
         return Response.json({ error: "Missing credentials" }, { status: 400 });
       }
       const hashed = await hashPassword(password);
-      await env.DB.prepare("INSERT INTO users (username, password, name, role) VALUES (?, ?, ?, 'super_admin')")
+      const res = await env.DB.prepare("INSERT INTO users (username, password, name, role) VALUES (?, ?, ?, 'super_admin')")
         .bind(username, hashed, name).run();
-      return Response.json({ success: true });
+      const adminId = res?.meta?.last_row_id || 1;
+      const token = await createToken({ id: adminId, username, name, role: 'super_admin', exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7 }, env.AUTH_SECRET);
+      return Response.json({ success: true, user: { id: adminId, username, name, role: 'super_admin' }, token });
     }
 
     if (path === '/api/auth/login' && method === 'POST') {
@@ -139,10 +239,14 @@ export async function handleApi(request, env, path, url) {
           .run();
         user.password = hashed;
       }
-      return Response.json({ success: true, user });
+      const safeUser = { id: user.id, username: user.username, name: user.name, role: user.role };
+      const token = await createToken({ ...safeUser, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7 }, env.AUTH_SECRET);
+      return Response.json({ success: true, user: safeUser, token });
     }
 
     if (path === '/api/admin/teachers' && method === 'POST') {
+      const auth = await requireAuth(request, env, ['super_admin']);
+      if (auth.response) return auth.response;
       const { username, password, name } = await readJson(request);
       if (!username || !password || !name) {
         return Response.json({ error: 'Missing fields' }, { status: 400 });
@@ -158,11 +262,15 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/admin/teachers' && method === 'GET') {
+      const auth = await requireAuth(request, env, ['super_admin']);
+      if (auth.response) return auth.response;
       const teachers = await env.DB.prepare("SELECT id, name, username, created_at FROM users WHERE role = 'teacher' ORDER BY created_at DESC").all();
       return Response.json(teachers.results);
     }
 
     if (path === '/api/admin/teacher/delete' && method === 'POST') {
+      const auth = await requireAuth(request, env, ['super_admin']);
+      if (auth.response) return auth.response;
       const { id } = await readJson(request);
       if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
       await env.DB.prepare("DELETE FROM users WHERE id = ? AND role = 'teacher'").bind(id).run();
@@ -170,6 +278,8 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/admin/student/delete' && method === 'POST') {
+      const auth = await requireAuth(request, env, ['teacher', 'super_admin']);
+      if (auth.response) return auth.response;
       const { id } = await readJson(request);
       if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
       await env.DB.prepare("DELETE FROM students WHERE id = ?").bind(id).run();
@@ -179,29 +289,37 @@ export async function handleApi(request, env, path, url) {
 
     // 4. EXAM MANAGEMENT
     if (path === '/api/exam/save' && method === 'POST') {
-      const { id, title, teacher_id, settings } = await readJson(request);
-      if (!title || !teacher_id) {
+      const auth = await requireAuth(request, env, ['teacher', 'super_admin']);
+      if (auth.response) return auth.response;
+      const { id, title, settings } = await readJson(request);
+      if (!title) {
         return Response.json({ error: 'Missing exam data' }, { status: 400 });
       }
       let examId = id;
       let link_id = null;
 
       if (examId) {
+        const ownerCheck = await ensureExamAccess(env, examId, auth.user);
+        if (ownerCheck.response) return ownerCheck.response;
         await env.DB.prepare("UPDATE exams SET title = ?, settings = ? WHERE id = ?")
           .bind(title, JSON.stringify(settings), examId).run();
         await env.DB.prepare("DELETE FROM questions WHERE exam_id = ?").bind(examId).run();
       } else {
         link_id = crypto.randomUUID();
         const res = await env.DB.prepare("INSERT INTO exams (link_id, title, teacher_id, settings) VALUES (?, ?, ?, ?)")
-          .bind(link_id, title, teacher_id, JSON.stringify(settings)).run();
+          .bind(link_id, title, auth.user.id, JSON.stringify(settings)).run();
         examId = res.meta.last_row_id;
       }
       return Response.json({ success: true, id: examId, link_id });
     }
 
     if (path === '/api/exam/delete' && method === 'POST') {
+      const auth = await requireAuth(request, env, ['teacher', 'super_admin']);
+      if (auth.response) return auth.response;
       const { id } = await readJson(request);
       if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
+      const ownerCheck = await ensureExamAccess(env, id, auth.user);
+      if (ownerCheck.response) return ownerCheck.response;
       await env.DB.batch([
         env.DB.prepare("DELETE FROM exams WHERE id = ?").bind(id),
         env.DB.prepare("DELETE FROM questions WHERE exam_id = ?").bind(id),
@@ -211,13 +329,19 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/exam/toggle' && method === 'POST') {
+      const auth = await requireAuth(request, env, ['teacher', 'super_admin']);
+      if (auth.response) return auth.response;
       const { id, is_active } = await readJson(request);
       if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
+      const ownerCheck = await ensureExamAccess(env, id, auth.user);
+      if (ownerCheck.response) return ownerCheck.response;
       await env.DB.prepare("UPDATE exams SET is_active = ? WHERE id = ?").bind(is_active ? 1 : 0, id).run();
       return Response.json({ success: true });
     }
 
     if (path === '/api/question/add' && method === 'POST') {
+      const auth = await requireAuth(request, env, ['teacher', 'super_admin']);
+      if (auth.response) return auth.response;
       const formData = await request.formData();
       const exam_id = formData.get('exam_id');
       const text = formData.get('text');
@@ -226,6 +350,9 @@ export async function handleApi(request, env, path, url) {
       const existing_image_key = formData.get('existing_image_key');
 
       let image_key = null;
+
+      const ownerCheck = await ensureExamAccess(env, exam_id, auth.user);
+      if (ownerCheck.response) return ownerCheck.response;
 
       if (image && image.size > 0) {
         image_key = crypto.randomUUID();
@@ -240,7 +367,9 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/teacher/exams' && method === 'GET') {
-      const teacherId = url.searchParams.get('teacher_id');
+      const auth = await requireAuth(request, env, ['teacher', 'super_admin']);
+      if (auth.response) return auth.response;
+      const teacherId = auth.user.role === 'super_admin' ? url.searchParams.get('teacher_id') || auth.user.id : auth.user.id;
       try {
         const exams = await env.DB.prepare("SELECT * FROM exams WHERE teacher_id = ? ORDER BY created_at DESC").bind(teacherId).all();
         return Response.json(exams.results);
@@ -250,7 +379,11 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/teacher/exam-details' && method === 'GET') {
+      const auth = await requireAuth(request, env, ['teacher', 'super_admin']);
+      if (auth.response) return auth.response;
       const examId = url.searchParams.get('id');
+      const ownerCheck = await ensureExamAccess(env, examId, auth.user);
+      if (ownerCheck.response) return ownerCheck.response;
       const exam = await env.DB.prepare("SELECT * FROM exams WHERE id = ?").bind(examId).first();
       const questions = await env.DB.prepare("SELECT * FROM questions WHERE exam_id = ?").bind(examId).all();
       return Response.json({ exam, questions: questions.results });
@@ -344,7 +477,11 @@ export async function handleApi(request, env, path, url) {
 
     // 7. ANALYTICS
     if (path === '/api/analytics/exam' && method === 'GET') {
+      const auth = await requireAuth(request, env, ['teacher', 'super_admin']);
+      if (auth.response) return auth.response;
       const examId = url.searchParams.get('exam_id');
+      const ownerCheck = await ensureExamAccess(env, examId, auth.user);
+      if (ownerCheck.response) return ownerCheck.response;
       try {
         const results = await env.DB.prepare(`
             SELECT a.*, s.name, s.school_id, s.roll, s.class, s.section
@@ -360,6 +497,8 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/students/list' && method === 'GET') {
+      const auth = await requireAuth(request, env, ['teacher', 'super_admin']);
+      if (auth.response) return auth.response;
       try {
         const students = await env.DB.prepare(`
                 SELECT s.*, COUNT(a.id) as exams_count, AVG(CAST(a.score AS FLOAT)/CAST(a.total AS FLOAT))*100 as avg_score

@@ -94,6 +94,13 @@ ${getHeadContent()}
         // Unified JSON fetch helper for consistent headers & error handling
         const apiFetch = async (url, options = {}) => {
             const opts = { ...options, headers: { ...(options.headers || {}) } };
+            try {
+                const stored = localStorage.getItem('mc_user');
+                if (stored) {
+                    const parsed = JSON.parse(stored);
+                    if (parsed?.token) opts.headers['Authorization'] = `Bearer ${parsed.token}`;
+                }
+            } catch (e) {}
             if (options.body && !(options.body instanceof FormData)) {
                 opts.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
                 if (!opts.headers['Content-Type']) opts.headers['Content-Type'] = 'application/json';
@@ -144,9 +151,9 @@ ${getHeadContent()}
         function Login({ onLogin, addToast, onBack }) {
              const handle = async (e) => {
                  e.preventDefault();
-                 try {
-                    const data = await apiFetch('/api/auth/login', { method: 'POST', body: { username: e.target.username.value, password: e.target.password.value } });
-                    if(data.success) onLogin(data.user);
+                try {
+                   const data = await apiFetch('/api/auth/login', { method: 'POST', body: { username: e.target.username.value, password: e.target.password.value } });
+                    if(data.success) onLogin({ ...data.user, token: data.token });
                     else addToast("Invalid credentials", 'error');
                  } catch(err) {
                     addToast(err.message || 'Login failed', 'error');
@@ -320,7 +327,7 @@ ${getHeadContent()}
             const handleReset = async () => {
                 if(!confirm("⚠️ FACTORY RESET: Delete EVERYTHING?")) return;
                 try {
-                    await apiFetch('/api/system/reset', { method: 'POST', headers: { 'x-user-role': user?.role || '' } });
+                    await apiFetch('/api/system/reset', { method: 'POST' });
                     addToast("System Reset");
                 } catch(err) {
                     addToast(err.message || 'Reset failed', 'error');
@@ -386,10 +393,10 @@ ${getHeadContent()}
             const [statId, setStatId] = useState(null);
 
             useEffect(() => { loadExams(); }, []);
-            const loadExams = () => fetch(\`/api/teacher/exams?teacher_id=\${user.id}\`).then(r=>r.json()).then(d=>setExams(Array.isArray(d)?d:[]));
+            const loadExams = () => apiFetch('/api/teacher/exams').then(d=>setExams(Array.isArray(d)?d:[]));
 
-            const toggle = async (id, isActive) => { await fetch('/api/exam/toggle', {method:'POST', body:JSON.stringify({id, is_active:!isActive})}); loadExams(); };
-            const del = async (id) => { if(!confirm("Delete?")) return; await fetch('/api/exam/delete', {method:'POST', body:JSON.stringify({id})}); loadExams(); };
+            const toggle = async (id, isActive) => { await apiFetch('/api/exam/toggle', {method:'POST', body:{id, is_active:!isActive}}); loadExams(); };
+            const del = async (id) => { if(!confirm("Delete?")) return; await apiFetch('/api/exam/delete', {method:'POST', body:{id}}); loadExams(); };
 
             if (mode === 'create') return <ExamEditor user={user} examId={editId} onCancel={() => setMode('list')} onFinish={() => { setMode('list'); loadExams(); addToast("Exam Saved!"); }} addToast={addToast} />;
             if (mode === 'stats') return <DashboardLayout user={user} onLogout={onLogout} title="Analytics" activeTab={tab} onTabChange={setTab} action={<button onClick={()=>setMode('list')} className="text-gray-500 font-bold">← Back</button>}><ExamStats examId={statId} /></DashboardLayout>;
@@ -420,9 +427,9 @@ ${getHeadContent()}
             const [filterSec, setFilterSec] = useState('');
             const [search, setSearch] = useState('');
 
-            useEffect(() => { 
-                fetch('/api/students/list').then(r=>r.json()).then(d=>setList(Array.isArray(d)?d:[]));
-                fetch('/api/config/get').then(r=>r.json()).then(d => { if(Array.isArray(d)) setConfig(d); });
+            useEffect(() => {
+                apiFetch('/api/students/list').then(d=>setList(Array.isArray(d)?d:[]));
+                apiFetch('/api/config/get').then(d => { if(Array.isArray(d)) setConfig(d); });
             }, []);
 
             const classes = Array.isArray(config) ? [...new Set(config.filter(c=>c.type==='class').map(c=>c.value))] : [];
@@ -462,7 +469,7 @@ ${getHeadContent()}
             const [data, setData] = useState([]);
             const [viewDetail, setViewDetail] = useState(null);
             
-            useEffect(() => { fetch(\`/api/analytics/exam?exam_id=\${examId}\`).then(r=>r.json()).then(d=>setData(Array.isArray(d)?d:[])); }, [examId]);
+            useEffect(() => { apiFetch(`/api/analytics/exam?exam_id=${examId}`).then(d=>setData(Array.isArray(d)?d:[])); }, [examId]);
 
             if(viewDetail) return (
                 <div className="bg-white rounded-xl border p-6 anim-enter">
@@ -482,7 +489,7 @@ ${getHeadContent()}
             const [submitting, setSubmitting] = useState(false);
 
             useEffect(() => {
-                if (examId) fetch(\`/api/teacher/exam-details?id=\${examId}\`).then(r => r.json()).then(data => {
+                if (examId) apiFetch(`/api/teacher/exam-details?id=${examId}`).then(data => {
                     setMeta({ ...meta, ...JSON.parse(data.exam.settings || '{}'), title: data.exam.title });
                     setQs(data.questions.map(q => ({ ...q, choices: JSON.parse(q.choices) })));
                 });
@@ -503,8 +510,7 @@ ${getHeadContent()}
                 if (!meta.title || qs.length === 0) return addToast("Needs title & questions", 'error');
                 setSubmitting(true);
                 try {
-                    const res = await fetch('/api/exam/save', { method: 'POST', body: JSON.stringify({ id: examId, title: meta.title, teacher_id: user.id, settings: meta }) });
-                    const data = await res.json();
+                    const data = await apiFetch('/api/exam/save', { method: 'POST', body: { id: examId, title: meta.title, settings: meta } });
                     for (let q of qs) {
                         const fd = new FormData();
                         fd.append('exam_id', data.id);
@@ -520,10 +526,10 @@ ${getHeadContent()}
                            fd.append('existing_image_key', q.image_key);
                         }
 
-                        await fetch('/api/question/add', { method: 'POST', body: fd });
+                        await apiFetch('/api/question/add', { method: 'POST', body: fd });
                     }
                     onFinish();
-                } catch(e) { addToast("Error Saving", 'error'); } 
+                } catch(e) { addToast("Error Saving", 'error'); }
                 finally { setSubmitting(false); }
             };
 
@@ -898,12 +904,15 @@ ${getHeadContent()}
             }, [user]);
 
             // Persist User
-            useEffect(() => { 
-                try { 
-                    const u = localStorage.getItem('mc_user'); 
-                    if(u) setUser(JSON.parse(u)); 
-                } catch(e) {} 
-                fetch('/api/system/status').then(r=>r.json()).then(setStatus).catch(e=>setStatus({installed:false, hasAdmin:false})); 
+            useEffect(() => {
+                try {
+                    const u = localStorage.getItem('mc_user');
+                    if(u) {
+                        const parsed = JSON.parse(u);
+                        if (parsed.token) setUser(parsed); else localStorage.removeItem('mc_user');
+                    }
+                } catch(e) {}
+                fetch('/api/system/status').then(r=>r.json()).then(setStatus).catch(e=>setStatus({installed:false, hasAdmin:false}));
             }, []);
 
             const loginUser = (u) => { setUser(u); localStorage.setItem('mc_user', JSON.stringify(u)); window.location.hash = u.role === 'super_admin' ? 'admin' : 'teacher'; };
