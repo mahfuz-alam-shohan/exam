@@ -103,7 +103,7 @@ ${getHeadContent()}
             let data = null;
             try { data = await res.json(); } catch (e) {}
             if (!res.ok || (data && data.error)) {
-                throw new Error(data?.error || `Request failed (${res.status})`);
+                throw new Error(data?.error || 'Request failed (' + res.status + ')');
             }
             return data;
         };
