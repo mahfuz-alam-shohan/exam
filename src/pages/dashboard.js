@@ -2,10 +2,8 @@ export function getLandingPage() { return buildHtml('landing'); }
 export function getStudentPage() { return buildHtml('student'); }
 export function getAdminPage() { return buildHtml('login'); }
 
-function buildHtml(initialRoute = 'landing') {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
+function getHeadContent() {
+  return `<head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>My Class</title>
@@ -27,7 +25,13 @@ function buildHtml(initialRoute = 'landing') {
       .no-scrollbar::-webkit-scrollbar { display: none; }
       .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
-</head>
+  </head>`;
+}
+
+function buildHtml(initialRoute = 'landing') {
+  return `<!DOCTYPE html>
+<html lang="en">
+${getHeadContent()}
 <body class="text-slate-800 antialiased selection:bg-orange-200">
     <div id="root"></div>
     <script>window.__INITIAL_ROUTE__ = "${initialRoute}";</script>

@@ -1,6 +1,14 @@
 // API route handling for Cloudflare Worker
 // Splits database and submission logic away from the main entry for readability.
 
+async function readJson(request) {
+  try {
+    return await request.json();
+  } catch (err) {
+    throw new Error('Invalid JSON body');
+  }
+}
+
 export async function handleApi(request, env, path, url) {
   const method = request.method;
 
@@ -62,13 +70,17 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/config/add' && method === 'POST') {
-      const { type, value } = await request.json();
+      const { type, value } = await readJson(request);
+      if (!type || !value) {
+        return Response.json({ error: 'Missing type or value' }, { status: 400 });
+      }
       await env.DB.prepare("INSERT INTO school_config (type, value) VALUES (?, ?)").bind(type, value).run();
-      return Response.json({ success: true });
+      return Response.json({ success: true, type, value });
     }
 
     if (path === '/api/config/delete' && method === 'POST') {
-      const { id } = await request.json();
+      const { id } = await readJson(request);
+      if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
       await env.DB.prepare("DELETE FROM school_config WHERE id = ?").bind(id).run();
       return Response.json({ success: true });
     }
@@ -81,14 +93,20 @@ export async function handleApi(request, env, path, url) {
 
       if (count > 0) return Response.json({ error: "Admin already exists" }, { status: 403 });
 
-      const { username, password, name } = await request.json();
+      const { username, password, name } = await readJson(request);
+      if (!username || !password || !name) {
+        return Response.json({ error: "Missing credentials" }, { status: 400 });
+      }
       await env.DB.prepare("INSERT INTO users (username, password, name, role) VALUES (?, ?, ?, 'super_admin')")
         .bind(username, password, name).run();
       return Response.json({ success: true });
     }
 
     if (path === '/api/auth/login' && method === 'POST') {
-      const { username, password } = await request.json();
+      const { username, password } = await readJson(request);
+      if (!username || !password) {
+        return Response.json({ error: "Missing credentials" }, { status: 400 });
+      }
       const user = await env.DB.prepare("SELECT * FROM users WHERE username = ? AND password = ?")
         .bind(username, password).first();
 
@@ -97,7 +115,10 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/admin/teachers' && method === 'POST') {
-      const { username, password, name } = await request.json();
+      const { username, password, name } = await readJson(request);
+      if (!username || !password || !name) {
+        return Response.json({ error: 'Missing fields' }, { status: 400 });
+      }
       try {
         await env.DB.prepare("INSERT INTO users (username, password, name, role) VALUES (?, ?, ?, 'teacher')")
           .bind(username, password, name).run();
@@ -113,13 +134,15 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/admin/teacher/delete' && method === 'POST') {
-      const { id } = await request.json();
+      const { id } = await readJson(request);
+      if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
       await env.DB.prepare("DELETE FROM users WHERE id = ? AND role = 'teacher'").bind(id).run();
       return Response.json({ success: true });
     }
 
     if (path === '/api/admin/student/delete' && method === 'POST') {
-      const { id } = await request.json();
+      const { id } = await readJson(request);
+      if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
       await env.DB.prepare("DELETE FROM students WHERE id = ?").bind(id).run();
       await env.DB.prepare("DELETE FROM attempts WHERE student_db_id = ?").bind(id).run();
       return Response.json({ success: true });
@@ -127,7 +150,10 @@ export async function handleApi(request, env, path, url) {
 
     // 4. EXAM MANAGEMENT
     if (path === '/api/exam/save' && method === 'POST') {
-      const { id, title, teacher_id, settings } = await request.json();
+      const { id, title, teacher_id, settings } = await readJson(request);
+      if (!title || !teacher_id) {
+        return Response.json({ error: 'Missing exam data' }, { status: 400 });
+      }
       let examId = id;
       let link_id = null;
 
@@ -145,7 +171,8 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/exam/delete' && method === 'POST') {
-      const { id } = await request.json();
+      const { id } = await readJson(request);
+      if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
       await env.DB.batch([
         env.DB.prepare("DELETE FROM exams WHERE id = ?").bind(id),
         env.DB.prepare("DELETE FROM questions WHERE exam_id = ?").bind(id),
@@ -155,7 +182,8 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/exam/toggle' && method === 'POST') {
-      const { id, is_active } = await request.json();
+      const { id, is_active } = await readJson(request);
+      if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
       await env.DB.prepare("UPDATE exams SET is_active = ? WHERE id = ?").bind(is_active ? 1 : 0, id).run();
       return Response.json({ success: true });
     }
@@ -201,7 +229,8 @@ export async function handleApi(request, env, path, url) {
 
     // 5. STUDENT PORTAL
     if (path === '/api/student/portal-history' && method === 'POST') {
-      const { school_id } = await request.json();
+      const { school_id } = await readJson(request);
+      if (!school_id) return Response.json({ error: 'Missing school_id' }, { status: 400 });
       const student = await env.DB.prepare("SELECT * FROM students WHERE school_id = ?").bind(school_id).first();
 
       if (!student) return Response.json({ found: false });
@@ -218,7 +247,8 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/student/identify' && method === 'POST') {
-      const { school_id } = await request.json();
+      const { school_id } = await readJson(request);
+      if (!school_id) return Response.json({ error: 'Missing school_id' }, { status: 400 });
       const student = await env.DB.prepare("SELECT * FROM students WHERE school_id = ?").bind(school_id).first();
 
       if (student) {
@@ -248,7 +278,8 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/student/check' && method === 'POST') {
-      const { exam_id, school_id } = await request.json();
+      const { exam_id, school_id } = await readJson(request);
+      if (!exam_id || !school_id) return Response.json({ error: 'Missing identifiers' }, { status: 400 });
       const student = await env.DB.prepare("SELECT id FROM students WHERE school_id = ?").bind(school_id).first();
       if (!student) return Response.json({ canTake: true });
 
@@ -257,7 +288,10 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/submit' && method === 'POST') {
-      const { link_id, student, answers, score, total } = await request.json();
+      const { link_id, student, answers, score, total } = await readJson(request);
+      if (!link_id || !student || !student.school_id) {
+        return Response.json({ error: 'Missing submission data' }, { status: 400 });
+      }
 
       const exam = await env.DB.prepare("SELECT id FROM exams WHERE link_id = ?").bind(link_id).first();
       if (!exam) return Response.json({ error: "Invalid Exam" });
