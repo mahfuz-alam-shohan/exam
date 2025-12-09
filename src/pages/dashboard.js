@@ -114,6 +114,10 @@ ${getHeadContent()}
             </button>
         );
 
+        const SkeletonRow = ({ className = '' }) => (
+            <div className={\`h-12 bg-gray-100 rounded-2xl animate-pulse \${className}\`}></div>
+        );
+
         // --- COMPONENTS ---
 
         function Setup({ onComplete, addToast }) {
@@ -382,13 +386,30 @@ ${getHeadContent()}
             const [tab, setTab] = useState('exams');
             const [mode, setMode] = useState('list');
             const [exams, setExams] = useState([]);
+            const [loadingExams, setLoadingExams] = useState(true);
             const [editId, setEditId] = useState(null);
             const [statId, setStatId] = useState(null);
 
             useEffect(() => { loadExams(); }, []);
-            const loadExams = () => fetch(\`/api/teacher/exams?teacher_id=\${user.id}\`).then(r=>r.json()).then(d=>setExams(Array.isArray(d)?d:[]));
+            const loadExams = (showLoading = true) => {
+                if (showLoading) setLoadingExams(true);
+                fetch(\`/api/teacher/exams?teacher_id=\${user.id}\`)
+                    .then(r => r.json())
+                    .then(d => setExams(Array.isArray(d) ? d : []))
+                    .finally(() => setLoadingExams(false));
+            };
 
-            const toggle = async (id, isActive) => { await fetch('/api/exam/toggle', {method:'POST', body:JSON.stringify({id, is_active:!isActive})}); loadExams(); };
+            const toggle = async (id, isActive) => {
+                setExams(prev => prev.map(e => e.id === id ? { ...e, is_active: !isActive } : e));
+                try {
+                    const res = await fetch('/api/exam/toggle', { method: 'POST', body: JSON.stringify({ id, is_active: !isActive }) });
+                    if (!res.ok) throw new Error('Failed to update');
+                    loadExams(false);
+                } catch (err) {
+                    setExams(prev => prev.map(e => e.id === id ? { ...e, is_active: isActive } : e));
+                    addToast(err.message || 'Could not update exam', 'error');
+                }
+            };
             const del = async (id) => { if(!confirm("Delete?")) return; await fetch('/api/exam/delete', {method:'POST', body:JSON.stringify({id})}); loadExams(); };
 
             if (mode === 'create') return <ExamEditor user={user} examId={editId} onCancel={() => setMode('list')} onFinish={() => { setMode('list'); loadExams(); addToast("Exam Saved!"); }} addToast={addToast} />;
@@ -398,16 +419,30 @@ ${getHeadContent()}
                 <DashboardLayout user={user} onLogout={onLogout} title={tab==='exams'?'My Exams':'Students'} activeTab={tab} onTabChange={setTab}
                     action={tab === 'exams' && <button onClick={() => { setEditId(null); setMode('create'); }} className="bg-orange-500 text-white px-4 py-2 rounded-xl font-bold shadow-lg shadow-orange-200 btn-bounce flex items-center gap-2"><Icons.Plus /> <span className="hidden sm:inline">New Exam</span></button>}
                 >
-                    {tab === 'exams' && <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 anim-enter pb-20">{exams.map(e => (
-                        <div key={e.id} className="bg-white p-5 rounded-3xl shadow-sm border border-orange-100 relative group overflow-hidden">
-                            <div className={\`absolute top-0 left-0 w-2 h-full \${e.is_active ? 'bg-green-400' : 'bg-gray-300'}\`}></div>
-                            <div className="pl-4">
-                                <div className="flex justify-between items-start mb-2"><h3 className="font-bold text-lg text-slate-800 line-clamp-1">{e.title}</h3><button onClick={()=>del(e.id)} className="text-gray-300 hover:text-red-500"><Icons.Trash/></button></div>
-                                <div className="flex justify-between items-center mt-4"><Toggle checked={!!e.is_active} onChange={()=>toggle(e.id, e.is_active)} /><div className="flex gap-2"><button onClick={() => { setEditId(e.id); setMode('create'); }} className="bg-orange-50 text-orange-600 p-2 rounded-xl"><Icons.Edit /></button><button onClick={() => { setStatId(e.id); setMode('stats'); }} className="bg-blue-50 text-blue-600 p-2 rounded-xl"><Icons.Chart /></button></div></div>
-                                <button onClick={() => { navigator.clipboard.writeText(\`\${window.location.origin}/?exam=\${e.link_id}\`); addToast("Link Copied!"); }} className="w-full mt-4 bg-gray-50 text-gray-600 text-xs font-bold py-2 rounded-xl hover:bg-gray-100">Copy Link</button>
-                            </div>
+                    {tab === 'exams' && (
+                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 anim-enter pb-20">
+                            {loadingExams ? (
+                                Array.from({ length: 6 }).map((_, i) => (
+                                    <div key={i} className="bg-white p-5 rounded-3xl shadow-sm border border-orange-100">
+                                        <SkeletonRow className="w-2/3 h-6 mb-3" />
+                                        <SkeletonRow className="w-1/3 h-4 mb-4" />
+                                        <SkeletonRow className="h-10" />
+                                    </div>
+                                ))
+                            ) : (
+                                exams.length > 0 ? exams.map(e => (
+                                    <div key={e.id} className="bg-white p-5 rounded-3xl shadow-sm border border-orange-100 relative group overflow-hidden">
+                                        <div className={\`absolute top-0 left-0 w-2 h-full \${e.is_active ? 'bg-green-400' : 'bg-gray-300'}\`}></div>
+                                        <div className="pl-4">
+                                            <div className="flex justify-between items-start mb-2"><h3 className="font-bold text-lg text-slate-800 line-clamp-1">{e.title}</h3><button onClick={()=>del(e.id)} className="text-gray-300 hover:text-red-500"><Icons.Trash/></button></div>
+                                            <div className="flex justify-between items-center mt-4"><Toggle checked={!!e.is_active} onChange={()=>toggle(e.id, e.is_active)} /><div className="flex gap-2"><button onClick={() => { setEditId(e.id); setMode('create'); }} className="bg-orange-50 text-orange-600 p-2 rounded-xl"><Icons.Edit /></button><button onClick={() => { setStatId(e.id); setMode('stats'); }} className="bg-blue-50 text-blue-600 p-2 rounded-xl"><Icons.Chart /></button></div></div>
+                                            <button onClick={() => { navigator.clipboard.writeText(\`\${window.location.origin}/?exam=\${e.link_id}\`); addToast("Link Copied!"); }} className="w-full mt-4 bg-gray-50 text-gray-600 text-xs font-bold py-2 rounded-xl hover:bg-gray-100">Copy Link</button>
+                                        </div>
+                                    </div>
+                                )) : <div className="col-span-full text-center text-gray-400 py-10 font-bold">No exams yet</div>
+                            )}
                         </div>
-                    ))}</div>}
+                    )}
                     {tab === 'students' && <StudentList />}
                 </DashboardLayout>
             );
@@ -416,13 +451,28 @@ ${getHeadContent()}
         function StudentList() {
             const [list, setList] = useState([]);
             const [config, setConfig] = useState([]);
+            const [loading, setLoading] = useState(true);
             const [filterClass, setFilterClass] = useState('');
             const [filterSec, setFilterSec] = useState('');
             const [search, setSearch] = useState('');
 
-            useEffect(() => { 
-                fetch('/api/students/list').then(r=>r.json()).then(d=>setList(Array.isArray(d)?d:[]));
-                fetch('/api/config/get').then(r=>r.json()).then(d => { if(Array.isArray(d)) setConfig(d); });
+            useEffect(() => {
+                let active = true;
+                const load = async () => {
+                    try {
+                        const [students, cfg] = await Promise.all([
+                            fetch('/api/students/list').then(r=>r.json()),
+                            fetch('/api/config/get').then(r=>r.json())
+                        ]);
+                        if(!active) return;
+                        setList(Array.isArray(students)?students:[]);
+                        if(Array.isArray(cfg)) setConfig(cfg);
+                    } finally {
+                        if(active) setLoading(false);
+                    }
+                };
+                load();
+                return () => { active = false; };
             }, []);
 
             const classes = Array.isArray(config) ? [...new Set(config.filter(c=>c.type==='class').map(c=>c.value))] : [];
@@ -448,11 +498,17 @@ ${getHeadContent()}
                         </div>
                     </div>
                     <div className="grid gap-3">
-                        {filtered.map(s=><div key={s.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
-                            <div><div className="font-bold">{s.name}</div><div className="text-xs text-gray-400">{s.school_id}</div><div className="text-xs font-bold text-indigo-500 mt-1">{s.class ? \`Class \${s.class}\` : 'No Class'} {s.section && \` - \${s.section}\`}</div></div>
-                            <div className="font-bold text-green-500">{Math.round(s.avg_score||0)}%</div>
-                        </div>)}
-                        {filtered.length === 0 && <div className="text-center text-gray-400 py-10">No students found</div>}
+                        {loading ? (
+                            Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} />)
+                        ) : (
+                            <>
+                                {filtered.map(s=><div key={s.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
+                                    <div><div className="font-bold">{s.name}</div><div className="text-xs text-gray-400">{s.school_id}</div><div className="text-xs font-bold text-indigo-500 mt-1">{s.class ? \`Class \${s.class}\` : 'No Class'} {s.section && \` - \${s.section}\`}</div></div>
+                                    <div className="font-bold text-green-500">{Math.round(s.avg_score||0)}%</div>
+                                </div>)}
+                                {filtered.length === 0 && <div className="text-center text-gray-400 py-10">No students found</div>}
+                            </>
+                        )}
                     </div>
                 </div>
             );
@@ -841,15 +897,17 @@ ${getHeadContent()}
             );
         }
 
-        function StudentPortal({ onBack }) {
+         function StudentPortal({ onBack }) {
              const [id, setId] = useState('');
              const [data, setData] = useState(null);
-             
-             const login = async (e) => { 
-                 e.preventDefault(); 
-                 const res = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: id }) }).then(r => r.json()); 
-                 if(res.found) { setData(res); localStorage.setItem('student_id', id); } 
-                 else alert("ID not found!"); 
+             const idError = id && id.length < 3;
+
+             const login = async (e) => {
+                 e.preventDefault();
+                 if(idError) return;
+                 const res = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: id }) }).then(r => r.json());
+                 if(res.found) { setData(res); localStorage.setItem('student_id', id); }
+                 else alert("ID not found!");
             };
              
              useEffect(() => { 
@@ -862,13 +920,14 @@ ${getHeadContent()}
              if(!data) return (
                 <div className="min-h-screen bg-orange-50 flex items-center justify-center p-6">
                     <div className="bg-white w-full max-w-sm p-8 rounded-3xl shadow-xl text-center anim-pop">
-                        <div className="mb-6 mx-auto w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center text-orange-500"><Icons.Logo /></div>
-                        <h1 className="text-2xl font-bold text-slate-800 mb-2">Student Hub</h1>
-                        <form onSubmit={login}>
-                            <input value={id} onChange={e=>setId(e.target.value)} className="w-full bg-gray-100 p-4 rounded-2xl font-bold text-center text-lg outline-none focus:ring-2 focus:ring-orange-400 mb-4" placeholder="Enter School ID" />
+                          <div className="mb-6 mx-auto w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center text-orange-500"><Icons.Logo /></div>
+                          <h1 className="text-2xl font-bold text-slate-800 mb-2">Student Hub</h1>
+                          <form onSubmit={login}>
+                            <input value={id} onChange={e=>setId(e.target.value)} className="w-full bg-gray-100 p-4 rounded-2xl font-bold text-center text-lg outline-none focus:ring-2 focus:ring-orange-400 mb-2" placeholder="Enter School ID" />
+                            {idError && <p className="text-xs text-red-500 font-bold mb-4">ID must be at least 3 characters</p>}
                             <button className="w-full bg-orange-500 text-white font-bold py-4 rounded-2xl btn-bounce shadow-lg shadow-orange-200">Enter</button>
-                        </form>
-                        <button onClick={onBack} className="mt-6 text-gray-400 font-bold text-sm">Back to Home</button>
+                          </form>
+                          <button onClick={onBack} className="mt-6 text-gray-400 font-bold text-sm">Back to Home</button>
                     </div>
                 </div>
             );
