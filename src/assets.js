@@ -8,7 +8,10 @@ export async function serveImage(path, env) {
 
   const headers = new Headers();
   object.writeHttpMetadata(headers);
-  headers.set('etag', object.httpEtag);
+  if (!headers.has('Content-Type') && object.httpMetadata?.contentType) {
+    headers.set('Content-Type', object.httpMetadata.contentType);
+  }
+  headers.set('ETag', object.httpEtag);
   headers.set('Cache-Control', 'public, max-age=31536000, immutable');
 
   return new Response(object.body, { headers });
