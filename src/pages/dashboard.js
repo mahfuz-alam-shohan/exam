@@ -112,13 +112,13 @@ ${getHeadContent()}
         };
 
         const Toggle = ({ checked, onChange }) => (
-            <button onClick={() => onChange(!checked)} className={\`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none \${checked ? 'bg-green-400' : 'bg-gray-200'}\`}>
-                <span className={\`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform \${checked ? 'translate-x-6' : 'translate-x-1'}\`} />
+            <button onClick={() => onChange(!checked)} className={`${'`'}relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none ${'${'}checked ? 'bg-green-400' : 'bg-gray-200'${'}'}${'`'}`}>
+                <span className={`${'`'}inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${'${'}checked ? 'translate-x-6' : 'translate-x-1'${'}'}${'`'}`} />
             </button>
         );
 
         const SkeletonRow = ({ className = '' }) => (
-            <div className={\`h-12 bg-gray-100 rounded-2xl animate-pulse \${className}\`}></div>
+            <div className={`${'`'}h-12 bg-gray-100 rounded-2xl animate-pulse ${'${'}className${'}'}${'`'}`}></div>
         );
 
         // --- COMPONENTS ---
@@ -397,7 +397,7 @@ ${getHeadContent()}
             useEffect(() => { loadExams(); }, [page]);
             const loadExams = (showLoading = true) => {
                 if (showLoading) setLoadingExams(true);
-                fetch(\`/api/teacher/exams?teacher_id=\${user.id}&page=\${page}\`)
+                fetch(`/api/teacher/exams?teacher_id=${'${'}user.id${'}'}&page=${'${'}page${'}'}`)
                     .then(r => r.json())
                     .then(d => setExams(Array.isArray(d) ? d : []))
                     .finally(() => setLoadingExams(false));
@@ -484,7 +484,7 @@ ${getHeadContent()}
                     try {
                         const params = new URLSearchParams({ page });
                         if (debouncedSearch) params.set('search', debouncedSearch);
-                        const students = await fetch(\`/api/students/list?\${params.toString()}\`).then(r=>r.json());
+                        const students = await fetch(`/api/students/list?${'${'}params.toString()${'}'}`).then(r=>r.json());
                         const cfg = await fetch('/api/config/get').then(r=>r.json());
                         if(!active) return;
                         setList(Array.isArray(students)?students:[]);
@@ -665,7 +665,7 @@ ${getHeadContent()}
                             <div className="p-4 border-b flex justify-between items-center bg-gray-50"><button onClick={() => setActiveQ(null)} className="font-bold text-gray-500">Cancel</button><span className="font-bold">Edit Question</span><button onClick={() => saveQ(activeQ)} className="font-bold text-green-600 bg-green-50 px-4 py-1 rounded-lg">Done</button></div>
                             <div className="flex-1 overflow-y-auto p-6 max-w-2xl mx-auto w-full">
                                 <textarea value={activeQ.text} onChange={e => setActiveQ({ ...activeQ, text: e.target.value })} className="w-full text-xl font-bold outline-none resize-none placeholder-gray-300 mb-6" placeholder="Type question here..." rows="3" autoFocus />
-                                <div className="mb-6"><label className="block w-full"><div className="w-full h-40 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400 cursor-pointer hover:bg-gray-100 relative overflow-hidden">{activeQ.image ? (activeQ.image instanceof File ? <img src={URL.createObjectURL(activeQ.image)} className="h-full w-full object-contain" /> : <div className="text-center"><img src="https://placehold.co/100x100?text=Existing" className="h-20 w-auto opacity-50 mx-auto" /><span className="text-xs font-bold text-green-500 block mt-2">Image Attached</span></div>) : activeQ.image_key ? (<div className="text-center"><img src={\`/img/\${activeQ.image_key}\`} className="h-32 object-contain mx-auto" /></div>) : (<><Icons.Image /><span className="text-xs font-bold mt-2">Add Photo</span></>)}
+                                <div className="mb-6"><label className="block w-full"><div className="w-full h-40 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400 cursor-pointer hover:bg-gray-100 relative overflow-hidden">{activeQ.image ? (activeQ.image instanceof File ? <img src={URL.createObjectURL(activeQ.image)} className="h-full w-full object-contain" /> : <div className="text-center"><img src="https://placehold.co/100x100?text=Existing" className="h-20 w-auto opacity-50 mx-auto" /><span className="text-xs font-bold text-green-500 block mt-2">Image Attached</span></div>) : activeQ.image_key ? (<div className="text-center"><img src={`${'`'}/img/${'${'}activeQ.image_key${'}'}${'`'}`} className="h-32 object-contain mx-auto" /></div>) : (<><Icons.Image /><span className="text-xs font-bold mt-2">Add Photo</span></>)}
                                 {activeQ.image instanceof File && (<div className="absolute bottom-0 left-0 w-full bg-black/50 text-white text-xs p-2 text-center backdrop-blur-sm">{activeQ.image.name} ({(activeQ.image.size/1024).toFixed(1)} KB)</div>)}</div><input type="file" className="hidden" accept="image/*" onChange={e => {if(e.target.files[0]) { setActiveQ({ ...activeQ, image: e.target.files[0] }); }}} /></label>{(activeQ.image || activeQ.image_key) && (<button onClick={()=>setActiveQ({...activeQ, image: null, image_key: null})} className="text-red-500 text-xs font-bold mt-2 flex items-center gap-1 justify-center"><Icons.Trash/> Remove Image</button>)}</div>
                                 <div className="space-y-3">{activeQ.choices.map((c, i) => (<div key={c.id} className="flex items-center gap-3"><div onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => ({ ...x, isCorrect: x.id === c.id })) })} className={\`w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition \${c.isCorrect ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300'}\`}>{c.isCorrect && <span className="font-bold text-sm">✓</span>}</div><input value={c.text} onChange={e => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => x.id === c.id ? { ...x, text: e.target.value } : x) })} className="flex-1 bg-gray-50 p-3 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-orange-200" placeholder={\`Option \${i + 1}\`} /><button onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.filter(x => x.id !== c.id) })} className="text-gray-300 px-2">×</button></div>))}<button onClick={() => setActiveQ({ ...activeQ, choices: [...activeQ.choices, { id: Date.now(), text: '', isCorrect: false }] })} className="text-sm font-bold text-blue-500 mt-2 ml-11">+ Add Option</button></div>
                             </div>
@@ -677,7 +677,7 @@ ${getHeadContent()}
 
         // 5. STUDENT EXAM APP (With Dropdowns & Validation)
         function StudentExamApp({ linkId }) {
-            const stateKey = \`mc_exam_state_\${linkId}\`;
+            const stateKey = `${'`'}mc_exam_state_${'${'}linkId${'}'}${'`'}`;
             const restoredState = useRef(null);
             const [mode, setMode] = useState('identify');
             const [student, setStudent] = useState({ name: '', school_id: '', roll: '', class: '', section: '' });
@@ -705,7 +705,8 @@ ${getHeadContent()}
             }, [stateKey]);
 
             useEffect(() => {
-                fetch(\`/api/exam/get?link_id=\${linkId}\`).then(r=>r.json()).then(d => {
+                fetch(`/api/exam/get?link_id=${'${'}linkId${'}'}`)
+                    .then(r=>r.json()).then(d => {
                     if(!d.exam?.is_active) return alert("Exam Closed");
                     setExam(d);
                     const classes = [...new Set(d.config.filter(c=>c.type==='class').map(c=>c.value))];
@@ -884,13 +885,13 @@ ${getHeadContent()}
                 <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-6">
                     <div className="w-full max-w-md flex justify-between items-center mb-8">
                         <div className="font-bold text-slate-500 uppercase text-xs tracking-widest">Question {qIdx+1}/{exam.questions.length}</div>
-                        <div className={\`text-xl font-mono font-bold \${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}\`}>
+                        <div className={`${'`'}text-xl font-mono font-bold ${'${'}(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'${'}'}${'`'}`}>
                             {settings.timerMode === 'question' ? qTime : Math.floor(totalTime/60) + ':' + (totalTime%60).toString().padStart(2,'0')}
                         </div>
                     </div>
                     <div className="w-full max-w-md flex-1 flex flex-col justify-center">
                         <div className="bg-white text-slate-900 p-6 rounded-3xl mb-6 text-center shadow-2xl">
-                            {exam.questions[qIdx].image_key && <img src={\`/img/\${exam.questions[qIdx].image_key}\`} className="h-40 mx-auto object-contain mb-4" />}
+                            {exam.questions[qIdx].image_key && <img src={`${'`'}/img/${'${'}exam.questions[qIdx].image_key${'}'}${'`'}`} className="h-40 mx-auto object-contain mb-4" />}
                             <h2 className="text-xl font-bold">{exam.questions[qIdx].text}</h2>
                         </div>
                         <div className="grid grid-cols-1 gap-3">
