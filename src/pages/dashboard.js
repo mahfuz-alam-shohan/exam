@@ -7,7 +7,7 @@ function getHeadContent() {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>My Class</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com" defer></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -614,6 +614,10 @@ ${getHeadContent()}
             const [examHistory, setExamHistory] = useState([]);
             const [qTime, setQTime] = useState(0);
             const [totalTime, setTotalTime] = useState(0);
+            const questionStartRef = useRef(null);
+            const totalStartRef = useRef(null);
+            const questionDurationRef = useRef(0);
+            const totalDurationRef = useRef(0);
 
             useEffect(() => {
                 try {
@@ -635,6 +639,11 @@ ${getHeadContent()}
             useEffect(() => {
                 if (exam && restoredState.current) {
                     const saved = restoredState.current;
+                    if (saved.examId && saved.examId !== exam.exam.id) {
+                        localStorage.removeItem(stateKey);
+                        restoredState.current = null;
+                        return;
+                    }
                     if (saved.student) setStudent(saved.student);
                     if (saved.answers) setAnswers(saved.answers);
                     if (typeof saved.qIdx === 'number' && exam.questions?.length) {
@@ -642,39 +651,59 @@ ${getHeadContent()}
                         setQIdx(clamped);
                     }
                     if (saved.mode) setMode(saved.mode);
+                    if (saved.mode === 'game') startGame();
                     restoredState.current = null;
                 }
-            }, [exam]);
+            }, [exam, stateKey]);
 
-            // Timer Tick
+            // Timer Tick using delta-time to avoid drift
             useEffect(() => {
-                if(mode !== 'game' || !exam) return;
+                if (mode !== 'game' || !exam) return;
                 const settings = JSON.parse(exam.exam.settings || '{}');
-                const int = setInterval(() => {
-                    if(settings.timerMode === 'question') {
-                        if(qTime > 0) setQTime(t => t - 1);
-                        else next(); 
-                    } else if(settings.timerMode === 'total') {
-                        if(totalTime > 0) setTotalTime(t => t - 1);
-                        else finish(); 
+                const tick = () => {
+                    const now = Date.now();
+                    if (settings.timerMode === 'question') {
+                        if (!questionStartRef.current) return;
+                        const elapsed = now - questionStartRef.current;
+                        const remaining = Math.max(0, Math.round((questionDurationRef.current - elapsed) / 1000));
+                        setQTime(remaining);
+                        if (remaining <= 0) {
+                            questionStartRef.current = Date.now();
+                            questionDurationRef.current = (settings.timerValue || 30) * 1000;
+                            next();
+                        }
+                    } else if (settings.timerMode === 'total') {
+                        if (!totalStartRef.current) return;
+                        const elapsed = now - totalStartRef.current;
+                        const remaining = Math.max(0, Math.round((totalDurationRef.current - elapsed) / 1000));
+                        setTotalTime(remaining);
+                        if (remaining <= 0) finish();
                     }
-                }, 1000);
+                };
+
+                tick();
+                const int = setInterval(tick, 500);
                 return () => clearInterval(int);
-            }, [mode, qTime, totalTime, exam]);
+            }, [mode, exam, qIdx]);
 
             useEffect(() => {
                 try {
-                    const payload = { qIdx, answers, mode, student };
+                    const payload = { examId: exam?.exam?.id, qIdx, answers, mode, student };
                     localStorage.setItem(stateKey, JSON.stringify(payload));
                 } catch (e) {}
-            }, [qIdx, answers, mode, student, stateKey]);
+            }, [qIdx, answers, mode, student, stateKey, exam]);
 
             const next = () => {
-                if(qIdx < exam.questions.length - 1) { 
-                    setQIdx(qIdx+1); 
+                if(qIdx < exam.questions.length - 1) {
+                    setQIdx(qIdx+1);
                     const s = JSON.parse(exam.exam.settings || '{}');
-                    if(s.timerMode === 'question') setQTime(s.timerValue || 30);
-                } else finish(); 
+                    if(s.timerMode === 'question') {
+                        const durationMs = (s.timerValue || 30) * 1000;
+                        questionStartRef.current = Date.now();
+                        questionDurationRef.current = durationMs;
+                        setQTime(Math.round(durationMs / 1000));
+                    }
+                } else finish();
             };
 
             const finish = async () => {
@@ -699,10 +728,20 @@ ${getHeadContent()}
             };
 
             const startGame = () => {
-                 setMode('game'); 
+                 setMode('game');
                  const settings = JSON.parse(exam.exam.settings || '{}');
-                 if(settings.timerMode==='total') setTotalTime((settings.timerValue||10)*60); 
-                 if(settings.timerMode==='question') setQTime(settings.timerValue||30);
+                 if(settings.timerMode==='total') {
+                    const durationMs = (settings.timerValue||10)*60*1000;
+                    totalStartRef.current = Date.now();
+                    totalDurationRef.current = durationMs;
+                    setTotalTime(Math.round(durationMs / 1000));
+                 }
+                 if(settings.timerMode==='question') {
+                    const durationMs = (settings.timerValue||30)*1000;
+                    questionStartRef.current = Date.now();
+                    questionDurationRef.current = durationMs;
+                    setQTime(Math.round(durationMs / 1000));
+                 }
             };
 
             if(!exam) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400">Loading Exam...</div>;
