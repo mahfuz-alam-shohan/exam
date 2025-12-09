@@ -84,11 +84,29 @@ ${getHeadContent()}
             <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 flex flex-col gap-2 w-full max-w-xs px-4">
                 {toasts.map(t => (
                     <div key={t.id} className={\`p-3 rounded-2xl shadow-xl text-center text-sm font-bold flex items-center justify-center gap-2 anim-pop border-2 \${t.type==='error'?'bg-red-50 border-red-200 text-red-600':'bg-white border-green-200 text-green-600'}\`}>
-                        {t.msg}
+                        {t.type === 'error' ? <Icons.X /> : <Icons.Check />}
+                        <span>{t.msg}</span>
                     </div>
                 ))}
             </div>
         );
+
+        // Unified JSON fetch helper for consistent headers & error handling
+        const apiFetch = async (url, options = {}) => {
+            const opts = { ...options, headers: { ...(options.headers || {}) } };
+            if (options.body && !(options.body instanceof FormData)) {
+                opts.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
+                if (!opts.headers['Content-Type']) opts.headers['Content-Type'] = 'application/json';
+            }
+
+            const res = await fetch(url, opts);
+            let data = null;
+            try { data = await res.json(); } catch (e) {}
+            if (!res.ok || (data && data.error)) {
+                throw new Error(data?.error || `Request failed (${res.status})`);
+            }
+            return data;
+        };
 
         const Toggle = ({ checked, onChange }) => (
             <button onClick={() => onChange(!checked)} className={\`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none \${checked ? 'bg-green-400' : 'bg-gray-200'}\`}>
@@ -98,13 +116,17 @@ ${getHeadContent()}
 
         // --- COMPONENTS ---
 
-        function Setup({ onComplete, addToast }) { 
-             const handle = async (e) => { 
-                 e.preventDefault(); 
-                 await fetch('/api/system/init', { method: 'POST' }); 
-                 const res = await fetch('/api/auth/setup-admin', { method: 'POST', body: JSON.stringify({ name: e.target.name.value, username: e.target.username.value, password: e.target.password.value }) }); 
-                 if(res.ok) onComplete(); 
-                 else addToast("Failed", 'error'); 
+        function Setup({ onComplete, addToast }) {
+             const handle = async (e) => {
+                 e.preventDefault();
+                 try {
+                    await apiFetch('/api/system/init', { method: 'POST' });
+                    await apiFetch('/api/auth/setup-admin', { method: 'POST', body: { name: e.target.name.value, username: e.target.username.value, password: e.target.password.value } });
+                    addToast('Setup complete!');
+                    onComplete();
+                 } catch(err) {
+                    addToast(err.message || 'Failed to set up', 'error');
+                 }
             };
              return (
                 <div className="min-h-screen bg-orange-50 flex items-center justify-center p-4">
@@ -119,13 +141,16 @@ ${getHeadContent()}
             );
         }
 
-        function Login({ onLogin, addToast, onBack }) { 
-             const handle = async (e) => { 
-                 e.preventDefault(); 
-                 const res = await fetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ username: e.target.username.value, password: e.target.password.value }) }); 
-                 const data = await res.json(); 
-                 if(data.success) onLogin(data.user); 
-                 else addToast("Wrong Password!", 'error'); 
+        function Login({ onLogin, addToast, onBack }) {
+             const handle = async (e) => {
+                 e.preventDefault();
+                 try {
+                    const data = await apiFetch('/api/auth/login', { method: 'POST', body: { username: e.target.username.value, password: e.target.password.value } });
+                    if(data.success) onLogin(data.user);
+                    else addToast("Invalid credentials", 'error');
+                 } catch(err) {
+                    addToast(err.message || 'Login failed', 'error');
+                 }
             };
              return (
                 <div className="min-h-screen bg-orange-50 flex items-center justify-center p-4">
@@ -213,19 +238,27 @@ ${getHeadContent()}
             const [val, setVal] = useState('');
 
             useEffect(() => { load(); }, []);
-            const load = () => fetch('/api/config/get').then(r=>r.json()).then(d => { if(Array.isArray(d)) setConfig(d); });
+            const load = () => apiFetch('/api/config/get').then(d => { if(Array.isArray(d)) setConfig(d); }).catch(() => addToast('Could not load config', 'error'));
 
             const add = async (e) => {
                 e.preventDefault();
-                await fetch('/api/config/add', {method:'POST', body:JSON.stringify({type, value: val})});
-                setVal(''); load();
-                addToast(\`Added \${type}\`);
+                try {
+                    await apiFetch('/api/config/add', {method:'POST', body:{type, value: val}});
+                    setVal(''); load();
+                    addToast(\`Added \${type}\`);
+                } catch(err) {
+                    addToast(err.message || 'Could not add', 'error');
+                }
             };
 
             const del = async (id) => {
                 if(!confirm('Delete?')) return;
-                await fetch('/api/config/delete', {method:'POST', body:JSON.stringify({id})});
-                load();
+                try {
+                    await apiFetch('/api/config/delete', {method:'POST', body:{id}});
+                    load();
+                } catch(err) {
+                    addToast(err.message || 'Could not delete', 'error');
+                }
             };
 
             return (
@@ -266,31 +299,44 @@ ${getHeadContent()}
             const fetchList = () => {
                 setLoading(true);
                 const endpoint = userType === 'teachers' ? '/api/admin/teachers' : '/api/students/list';
-                fetch(endpoint).then(r=>r.json()).then(d => {
-                    setList(Array.isArray(d) ? d : []);
-                    setLoading(false);
-                }).catch(() => setLoading(false));
+                apiFetch(endpoint)
+                    .then(d => setList(Array.isArray(d) ? d : []))
+                    .catch(() => addToast('Could not load data', 'error'))
+                    .finally(() => setLoading(false));
             }
 
             const deleteUser = async (id, name) => {
                 if(!confirm(\`Delete \${name}?\`)) return;
                 const endpoint = userType === 'teachers' ? '/api/admin/teacher/delete' : '/api/admin/student/delete';
-                await fetch(endpoint, { method: 'POST', body: JSON.stringify({id}) });
-                addToast(\`\${name} Deleted\`);
-                fetchList();
+                try {
+                    await apiFetch(endpoint, { method: 'POST', body: {id} });
+                    addToast(\`\${name} Deleted\`);
+                    fetchList();
+                } catch(err) {
+                    addToast(err.message || 'Delete failed', 'error');
+                }
             };
 
             const handleReset = async () => {
                 if(!confirm("⚠️ FACTORY RESET: Delete EVERYTHING?")) return;
-                await fetch('/api/system/reset', { method: 'POST' });
-                addToast("System Reset");
+                try {
+                    await apiFetch('/api/system/reset', { method: 'POST' });
+                    addToast("System Reset");
+                } catch(err) {
+                    addToast(err.message || 'Reset failed', 'error');
+                }
             };
 
             const addTeacher = async (e) => {
                 e.preventDefault();
-                const res = await fetch('/api/admin/teachers', { method: 'POST', body: JSON.stringify({ name: e.target.name.value, username: e.target.username.value, password: e.target.password.value }) });
-                if(res.ok) { addToast("Teacher Added"); e.target.reset(); fetchList(); }
-                else addToast("Failed", 'error');
+                try {
+                    await apiFetch('/api/admin/teachers', { method: 'POST', body: { name: e.target.name.value, username: e.target.username.value, password: e.target.password.value } });
+                    addToast("Teacher Added");
+                    e.target.reset();
+                    fetchList();
+                } catch(err) {
+                    addToast(err.message || 'Failed', 'error');
+                }
             };
 
             return (
