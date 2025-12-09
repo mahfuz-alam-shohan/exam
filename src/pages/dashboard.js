@@ -599,7 +599,7 @@ ${getHeadContent()}
 
         // 5. STUDENT EXAM APP (With Dropdowns & Validation)
         function StudentExamApp({ linkId }) {
-            const stateKey = `mc_exam_state_${linkId}`;
+            const stateKey = \`mc_exam_state_\${linkId}\`;
             const restoredState = useRef(null);
             const [mode, setMode] = useState('identify');
             const [student, setStudent] = useState({ name: '', school_id: '', roll: '', class: '', section: '' });
