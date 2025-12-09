@@ -518,16 +518,34 @@ export async function handleApi(request, env, path, url) {
         return new Response("Unauthorized", { status: 401 });
       }
       const page = getPage(url);
+      const search = url.searchParams.get('search');
       const offset = (page - 1) * 20;
       try {
-        const students = await env.DB.prepare(`
+        const searchTerm = search ? `%${search}%` : null;
+        const query = search
+          ? `
+                SELECT s.*, COUNT(a.id) as exams_count, AVG(CAST(a.score AS FLOAT)/CAST(a.total AS FLOAT))*100 as avg_score
+                FROM students s
+                LEFT JOIN attempts a ON s.id = a.student_db_id
+                WHERE s.name LIKE ? OR s.school_id LIKE ?
+                GROUP BY s.id
+                ORDER BY s.created_at DESC
+                LIMIT 20 OFFSET ?
+            `
+          : `
                 SELECT s.*, COUNT(a.id) as exams_count, AVG(CAST(a.score AS FLOAT)/CAST(a.total AS FLOAT))*100 as avg_score
                 FROM students s
                 LEFT JOIN attempts a ON s.id = a.student_db_id
                 GROUP BY s.id
                 ORDER BY s.created_at DESC
                 LIMIT 20 OFFSET ?
-            `).bind(offset).all();
+            `;
+
+        const statement = search
+          ? env.DB.prepare(query).bind(searchTerm, searchTerm, offset)
+          : env.DB.prepare(query).bind(offset);
+
+        const students = await statement.all();
         return Response.json(students.results);
       } catch (e) {
         return Response.json([]);

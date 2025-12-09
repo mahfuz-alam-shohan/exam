@@ -392,11 +392,12 @@ ${getHeadContent()}
             const [loadingExams, setLoadingExams] = useState(true);
             const [editId, setEditId] = useState(null);
             const [statId, setStatId] = useState(null);
+            const [page, setPage] = useState(1);
 
-            useEffect(() => { loadExams(); }, []);
+            useEffect(() => { loadExams(); }, [page]);
             const loadExams = (showLoading = true) => {
                 if (showLoading) setLoadingExams(true);
-                fetch(\`/api/teacher/exams?teacher_id=\${user.id}\`)
+                fetch(\`/api/teacher/exams?teacher_id=\${user.id}&page=\${page}\`)
                     .then(r => r.json())
                     .then(d => setExams(Array.isArray(d) ? d : []))
                     .finally(() => setLoadingExams(false));
@@ -445,6 +446,10 @@ ${getHeadContent()}
                                 )) : <div className="col-span-full text-center text-gray-400 py-10 font-bold">No exams yet</div>
                             )}
                         </div>
+                        <div className="flex justify-center gap-3 mt-6">
+                            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-4 py-2 rounded-xl font-bold bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed">Previous</button>
+                            <button onClick={() => setPage(p => p + 1)} disabled={exams.length < 20} className="px-4 py-2 rounded-xl font-bold bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
+                        </div>
                     )}
                     {tab === 'students' && <StudentList />}
                 </DashboardLayout>
@@ -458,15 +463,29 @@ ${getHeadContent()}
             const [filterClass, setFilterClass] = useState('');
             const [filterSec, setFilterSec] = useState('');
             const [search, setSearch] = useState('');
+            const [debouncedSearch, setDebouncedSearch] = useState('');
+            const [page, setPage] = useState(1);
 
             useEffect(() => {
                 let active = true;
-                const load = async () => {
+                const timer = setTimeout(() => {
+                    if (active) {
+                        setDebouncedSearch(search);
+                        setPage(1);
+                    }
+                }, 500);
+                return () => { active = false; clearTimeout(timer); };
+            }, [search]);
+
+            useEffect(() => {
+                let active = true;
+                setLoading(true);
+                const loadStudents = async () => {
                     try {
-                        const [students, cfg] = await Promise.all([
-                            fetch('/api/students/list').then(r=>r.json()),
-                            fetch('/api/config/get').then(r=>r.json())
-                        ]);
+                        const params = new URLSearchParams({ page });
+                        if (debouncedSearch) params.set('search', debouncedSearch);
+                        const students = await fetch(\`/api/students/list?\${params.toString()}\`).then(r=>r.json());
+                        const cfg = await fetch('/api/config/get').then(r=>r.json());
                         if(!active) return;
                         setList(Array.isArray(students)?students:[]);
                         if(Array.isArray(cfg)) setConfig(cfg);
@@ -474,20 +493,16 @@ ${getHeadContent()}
                         if(active) setLoading(false);
                     }
                 };
-                load();
+                loadStudents();
                 return () => { active = false; };
-            }, []);
+            }, [page, debouncedSearch]);
 
             const classes = Array.isArray(config) ? [...new Set(config.filter(c=>c.type==='class').map(c=>c.value))] : [];
             const sections = Array.isArray(config) ? [...new Set(config.filter(c=>c.type==='section').map(c=>c.value))] : [];
 
             const filtered = list.filter(s => {
-                const sName = s.name || "";
-                const sId = s.school_id || "";
-                
                 if(filterClass && s.class !== filterClass) return false;
                 if(filterSec && s.section !== filterSec) return false;
-                if(search && !sName.toLowerCase().includes(search.toLowerCase()) && !sId.includes(search)) return false;
                 return true;
             });
 
@@ -512,6 +527,10 @@ ${getHeadContent()}
                                 {filtered.length === 0 && <div className="text-center text-gray-400 py-10">No students found</div>}
                             </>
                         )}
+                    </div>
+                    <div className="flex justify-center gap-3 mt-6">
+                        <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-4 py-2 rounded-xl font-bold bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed">Previous</button>
+                        <button onClick={() => setPage(p => p + 1)} disabled={list.length < 20} className="px-4 py-2 rounded-xl font-bold bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
                     </div>
                 </div>
             );
