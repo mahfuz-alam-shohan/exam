@@ -576,20 +576,6 @@ ${getHeadContent()}
                     setConfig({ classes, sections });
                 }); 
             }, [linkId]);
-            const fetchPortalHistory = async (schoolId, studentFromDb = {}) => {
-                const histRes = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: schoolId }) }).then(r => r.json());
-                if (!histRes.found) return null;
-
-                setStudent(prev => ({ ...prev, ...studentFromDb, ...histRes.student }));
-
-                if (exam?.exam?.id) {
-                    const historyForExam = histRes.history.filter(h => h.exam_id === exam.exam.id);
-                    setExamHistory(historyForExam);
-                    return historyForExam;
-                }
-                return [];
-            };
-
 
             // Timer Tick
             useEffect(() => {
@@ -630,19 +616,15 @@ ${getHeadContent()}
                 setScore(fs); setResultDetails(det);
                 if((fs/exam.questions.length) > 0.6) confetti();
                 await fetch('/api/submit', { method: 'POST', body: JSON.stringify({ link_id: linkId, student, score: fs, total: exam.questions.length, answers: det }) });
-                const historyForExam = await fetchPortalHistory(student.school_id, student);
-                if (historyForExam) setExamHistory(historyForExam);
+                const histRes = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: student.school_id }) }).then(r => r.json());
+                if (histRes.found) setExamHistory(histRes.history.filter(h => h.exam_id === exam.exam.id));
                 setMode('summary');
             };
 
             const startGame = () => {
-                 setQIdx(0);
-                 setAnswers({});
-                 setScore(0);
-                 setResultDetails(null);
-                 setMode('game');
+                 setMode('game'); 
                  const settings = JSON.parse(exam.exam.settings || '{}');
-                 if(settings.timerMode==='total') setTotalTime((settings.timerValue||10)*60);
+                 if(settings.timerMode==='total') setTotalTime((settings.timerValue||10)*60); 
                  if(settings.timerMode==='question') setQTime(settings.timerValue||30);
             };
 
@@ -657,18 +639,16 @@ ${getHeadContent()}
                         <button onClick={async()=>{
                             if(!student.school_id) return alert("Enter ID");
                             const r = await fetch('/api/student/identify', {method:'POST', body:JSON.stringify({school_id:student.school_id})}).then(x=>x.json());
-                            if(r.found) {
+                            if(r.found) { 
                                 // Check if profile incomplete
-                                const historyForExam = await fetchPortalHistory(student.school_id, r.student);
                                 if(!r.student.class || !r.student.section) {
+                                    setStudent({...r.student, ...student});
                                     setMode('update_profile'); // Force update
-                                } else if(historyForExam?.length) {
-                                    setMode('history');
                                 } else {
-                                    startGame();
+                                    setStudent({...r.student, ...student}); 
+                                    startGame(); 
                                 }
                             } else setMode('register');
-
                         }} className="w-full bg-black text-white p-4 rounded-xl font-bold">Next</button>
                     </div>
                 </div>
@@ -706,44 +686,6 @@ ${getHeadContent()}
                 </div>
             );
 
-            if(mode === 'history') return (
-                <div className="min-h-screen bg-slate-900 text-white p-6 overflow-y-auto">
-                    <div className="max-w-xl mx-auto space-y-6">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-sm text-slate-400 font-bold">{student.school_id}</p>
-                                <h1 className="text-2xl font-black">Welcome back, {student.name || 'Student'}!</h1>
-                            </div>
-                            <button onClick={() => setMode('identify')} className="text-sm font-bold text-orange-300">Switch ID</button>
-                        </div>
-                        <div className="bg-slate-800/80 border border-slate-700 p-5 rounded-2xl">
-                            <div className="flex items-center justify-between mb-2">
-                                <h2 className="text-lg font-bold">Previous Attempts</h2>
-                                <div className="text-xs font-bold text-slate-400">Exam History</div>
-                            </div>
-                            {examHistory.length === 0 && <p className="text-slate-400 text-sm">No attempts recorded for this exam yet.</p>}
-                            <div className="space-y-3">
-                                {examHistory.map((h) => (
-                                    <div key={h.id} className="bg-slate-900/60 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
-                                        <div>
-                                            <div className="font-bold">{new Date(h.timestamp).toLocaleString()}</div>
-                                            <div className="text-xs text-slate-400">Score {h.score}/{h.total}</div>
-                                        </div>
-                                        <div className={`px-3 py-1 rounded-full text-xs font-bold ${((h.score / h.total) > 0.7) ? 'bg-green-500/20 text-green-300' : 'bg-orange-500/20 text-orange-200'}`}>
-                                            {Math.round((h.score / h.total) * 100)}%
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                        <div className="bg-slate-800/80 border border-slate-700 p-5 rounded-2xl space-y-3">
-                            <p className="text-sm text-slate-300">Ready for another try?</p>
-                            <button onClick={startGame} className="w-full bg-indigo-600 hover:bg-indigo-500 transition text-white font-bold py-3 rounded-xl">Start Exam</button>
-                        </div>
-                    </div>
-                </div>
-            );
-
             if(mode === 'game') return (
                 <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-6">
                     <div className="w-full max-w-md flex justify-between items-center mb-8">
@@ -776,24 +718,6 @@ ${getHeadContent()}
                         <div className="space-y-4">
                             <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
                             {resultDetails.map((q, i) => (<div key={i} className={\`p-6 rounded-2xl border \${q.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}><div className="font-bold text-lg mb-3">Q{i+1}. {q.qText}</div><div className="space-y-2">{q.choices.map(c => { const isSelected = c.id === q.selected; const isCorrectChoice = c.id === q.correct; let style = "bg-slate-800 border-slate-700 text-slate-400"; if (isCorrectChoice) style = "bg-green-500 text-white border-green-500"; else if (isSelected && !q.isCorrect) style = "bg-red-500 text-white border-red-500"; return (<div key={c.id} className={\`p-3 rounded-xl border flex justify-between items-center \${style}\`}> <span className="font-bold">{c.text}</span> {isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">You</span>} {isCorrectChoice && !isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">Correct</span>} </div>); })}</div></div>))}
-                        </div>
-                        <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 space-y-3">
-                            <div className="flex items-center justify-between">
-                                <h3 className="font-bold text-lg">Past attempts</h3>
-                                <span className="text-xs uppercase font-bold text-slate-400">This exam</span>
-                            </div>
-                            {examHistory.length === 0 && <p className="text-slate-400 text-sm">Your history will appear here after submissions.</p>}
-                            <div className="space-y-2">
-                                {examHistory.map((h) => (
-                                    <div key={h.id} className="bg-slate-900/60 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
-                                        <div>
-                                            <p className="font-bold">{new Date(h.timestamp).toLocaleString()}</p>
-                                            <p className="text-xs text-slate-400">Score {h.score}/{h.total}</p>
-                                        </div>
-                                        <span className={`text-xs font-bold px-3 py-1 rounded-full ${((h.score / h.total) > 0.7) ? 'bg-green-500/20 text-green-200' : 'bg-orange-500/20 text-orange-200'}`}>{Math.round((h.score / h.total) * 100)}%</span>
-                                    </div>
-                                ))}
-                            </div>
                         </div>
                         {settings.allowRetakes && (<div className="fixed bottom-0 left-0 w-full p-4 bg-slate-900/90 backdrop-blur border-t border-slate-800 text-center"><button onClick={() => window.location.reload()} className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-bold shadow-lg shadow-indigo-500/20 active:scale-95 transition w-full max-w-sm">Retake Exam</button></div>)}
                     </div>
