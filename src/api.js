@@ -52,6 +52,10 @@ export async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/system/reset' && method === 'POST') {
+      const userRole = request.headers.get('x-user-role');
+      if (userRole !== 'super_admin') {
+        return new Response("Unauthorized", { status: 403 });
+      }
       try {
         await env.DB.batch([
           env.DB.prepare("DELETE FROM students"),
