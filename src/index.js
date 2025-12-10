@@ -5,7 +5,7 @@
  * - Features: Class/Section Management, Student Filtering, robust Image Handling, Analytics
  */
 
-const JWT_SECRET = "faifnoq3hf28h3f872o8gh3fy2bf$%E$^Ddqu9hdn92iu3hdniu2h387n78yh87h78&Y*&Y*&*Y((U*(U()*)*)(*)(ijioohniubjk^fvufuhji872g"; // In prod, use env.JWT_SECRET
+const JWT_SECRET = "fnu2no23h877nyubHBKJUBYU&HGHOINUKBYTDFY$%dcvht25edy5c4tRC#DGFRVU^%DFrvtrgdct$TUDF%VTFVTGSDCTVKUDFRT$SDTCTJYCHTDRCJC{IPOKK{OJIVBY"; // In prod, use env.JWT_SECRET
 
 export default {
   async fetch(request, env) {
@@ -143,13 +143,26 @@ async function handleApi(request, env, path, url) {
         // Only Admin can reset
         await requireAuth('super_admin'); 
         try {
+            // FIX: Drop ALL tables first to ensure a complete wipe
             await env.DB.batch([
-                env.DB.prepare("DELETE FROM students"),
-                env.DB.prepare("DELETE FROM exams"),
-                env.DB.prepare("DELETE FROM questions"),
-                env.DB.prepare("DELETE FROM attempts"),
-                env.DB.prepare("DELETE FROM school_config"),
+                env.DB.prepare("DROP TABLE IF EXISTS attempts"),
+                env.DB.prepare("DROP TABLE IF EXISTS questions"),
+                env.DB.prepare("DROP TABLE IF EXISTS exams"),
+                env.DB.prepare("DROP TABLE IF EXISTS school_config"),
+                env.DB.prepare("DROP TABLE IF EXISTS students"),
+                env.DB.prepare("DROP TABLE IF EXISTS users"), // Deletes admin accounts
             ]);
+
+            // FIX: Immediately Recreate Empty Tables (Fresh Start)
+            await env.DB.batch([
+                env.DB.prepare("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT, name TEXT, role TEXT DEFAULT 'teacher', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
+                env.DB.prepare("CREATE TABLE IF NOT EXISTS students (id INTEGER PRIMARY KEY AUTOINCREMENT, school_id TEXT UNIQUE, name TEXT, roll TEXT, class TEXT, section TEXT, extra_info TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
+                env.DB.prepare("CREATE TABLE IF NOT EXISTS school_config (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT)"), 
+                env.DB.prepare("CREATE TABLE IF NOT EXISTS exams (id INTEGER PRIMARY KEY AUTOINCREMENT, link_id TEXT UNIQUE, title TEXT, teacher_id INTEGER, settings TEXT, is_active BOOLEAN DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
+                env.DB.prepare("CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER, text TEXT, image_key TEXT, choices TEXT)"),
+                env.DB.prepare("CREATE TABLE IF NOT EXISTS attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER, student_db_id INTEGER, score INTEGER, total INTEGER, details TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(student_db_id) REFERENCES students(id))")
+            ]);
+
             return Response.json({ success: true });
         } catch(e) {
             return Response.json({ error: e.message }, { status: 500 });
@@ -908,6 +921,11 @@ function getHtml() {
                 if(!confirm("⚠️ FACTORY RESET: Delete EVERYTHING?")) return;
                 await apiFetch('/api/system/reset', { method: 'POST' });
                 addToast("System Reset");
+                // FIX: Reload page to return to Setup screen
+                setTimeout(() => {
+                    localStorage.removeItem('mc_user');
+                    window.location.reload();
+                }, 1000);
             };
 
             const addTeacher = async (e) => {
