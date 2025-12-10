@@ -1408,11 +1408,15 @@ function getHtml() {
             const [examHistory, setExamHistory] = useState([]);
             const [qTime, setQTime] = useState(0);
             const [totalTime, setTotalTime] = useState(0);
-            const [showReview, setShowReview] = useState(false); // New state for review toggle
+            const [showReview, setShowReview] = useState(false); 
+            
+            // FIX: Added submitting state to prevent double submissions
+            const [submitting, setSubmitting] = useState(false);
+            const [transitioning, setTransitioning] = useState(false);
 
             useEffect(() => { 
                 // FIX: Escaped backticks for fetching exams to prevent build error
-                fetch(\`/api/exam/get?link_id=\${linkId}\`).then(r=>r.json()).then(d => {
+                fetch(`/api/exam/get?link_id=${linkId}`).then(r=>r.json()).then(d => {
                     if(!d.exam?.is_active) return alert("Exam Closed");
                     setExam(d);
                     const classes = [...new Set(d.config.filter(c=>c.type==='class').map(c=>c.value))];
@@ -1423,7 +1427,7 @@ function getHtml() {
 
             // Timer Tick
             useEffect(() => {
-                if(mode !== 'game' || !exam) return;
+                if(mode !== 'game' || !exam || submitting) return; // Stop timer if submitting
                 const settings = JSON.parse(exam.exam.settings || '{}');
                 const int = setInterval(() => {
                     if(settings.timerMode === 'question') {
@@ -1435,17 +1439,28 @@ function getHtml() {
                     }
                 }, 1000);
                 return () => clearInterval(int);
-            }, [mode, qTime, totalTime, exam]);
+            }, [mode, qTime, totalTime, exam, submitting]);
 
             const next = () => { 
+                if (transitioning || submitting) return; // Prevent double jumping
+                setTransitioning(true);
+
                 if(qIdx < exam.questions.length - 1) { 
-                    setQIdx(qIdx+1); 
+                    setQIdx(idx => idx + 1); 
                     const s = JSON.parse(exam.exam.settings || '{}');
                     if(s.timerMode === 'question') setQTime(s.timerValue || 30);
-                } else finish(); 
+                    // Reset transition lock after a small delay to allow render
+                    setTimeout(() => setTransitioning(false), 300);
+                } else {
+                    finish(); 
+                }
             };
 
             const finish = async () => {
+                // FIX: Guard against double submission
+                if (submitting) return;
+                setSubmitting(true);
+
                 const finalAnswers = {};
                 exam.questions.forEach(q => {
                     finalAnswers[q.id] = answers[q.id];
@@ -1454,28 +1469,37 @@ function getHtml() {
                 localStorage.setItem('student_id', student.school_id);
 
                 // Security: Send raw answers to backend, let backend calculate score
-                const res = await fetch('/api/submit', { 
-                    method: 'POST', 
-                    body: JSON.stringify({ 
-                        link_id: linkId, 
-                        student, 
-                        answers: finalAnswers // Only sending IDs of selected choices
-                    }) 
-                });
-                
-                if(!res.ok) return alert("Error Saving Result! Please try again or contact teacher.");
-                
-                const data = await res.json();
-                
-                // Update local state with server results
-                setScore(data.score);
-                setResultDetails(data.details);
-                
-                if((data.score/data.total) > 0.6) confetti();
+                try {
+                    const res = await fetch('/api/submit', { 
+                        method: 'POST', 
+                        body: JSON.stringify({ 
+                            link_id: linkId, 
+                            student, 
+                            answers: finalAnswers 
+                        }) 
+                    });
+                    
+                    if(!res.ok) {
+                        alert("Error Saving Result! Please try again or contact teacher.");
+                        setSubmitting(false);
+                        return;
+                    }
+                    
+                    const data = await res.json();
+                    
+                    // Update local state with server results
+                    setScore(data.score);
+                    setResultDetails(data.details);
+                    
+                    if((data.score/data.total) > 0.6) confetti();
 
-                const histRes = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: student.school_id }) }).then(r => r.json());
-                if (histRes.found) setExamHistory(histRes.history.filter(h => h.exam_id === exam.exam.id));
-                setMode('summary');
+                    const histRes = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: student.school_id }) }).then(r => r.json());
+                    if (histRes.found) setExamHistory(histRes.history.filter(h => h.exam_id === exam.exam.id));
+                    setMode('summary');
+                } catch(e) {
+                    alert("Network error occurred.");
+                    setSubmitting(false);
+                }
             };
 
             const startGame = () => {
@@ -1574,23 +1598,32 @@ function getHtml() {
                     <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-6">
                         <div className="w-full max-w-md flex justify-between items-center mb-8">
                             <div className="font-bold text-slate-500 uppercase text-xs tracking-widest">Question {qIdx+1}/{exam.questions.length}</div>
-                            <div className={\`text-xl font-mono font-bold \${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}\`}>
+                            <div className={`text-xl font-mono font-bold ${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}`}>
                                 {settings.timerMode === 'question' ? qTime : Math.floor(totalTime/60) + ':' + (totalTime%60).toString().padStart(2,'0')}
                             </div>
                         </div>
                         <div className="w-full max-w-md flex-1 flex flex-col justify-center">
                             <div className="bg-white text-slate-900 p-6 rounded-3xl mb-6 text-center shadow-2xl">
-                                {currentQuestion.image_key && <img src={\`/img/\${currentQuestion.image_key}\`} className="h-40 mx-auto object-contain mb-4" />}
+                                {currentQuestion.image_key && <img src={`/img/${currentQuestion.image_key}`} className="h-40 mx-auto object-contain mb-4" />}
                                 <h2 className="text-xl font-bold">{currentQuestion.text}</h2>
                             </div>
                             <div className="grid grid-cols-1 gap-3">
                                 {JSON.parse(currentQuestion.choices).map(c => (
-                                    <button key={c.id} onClick={()=>{ setAnswers({...answers, [currentQuestion.id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }} className={\`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 \${answers[currentQuestion.id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}\`}>
+                                    <button 
+                                        key={c.id} 
+                                        disabled={transitioning || submitting} // FIX: Disable button while processing
+                                        onClick={()=>{ 
+                                            if(transitioning || submitting) return;
+                                            setAnswers({...answers, [currentQuestion.id]:c.id}); 
+                                            if(settings.timerMode==='question') setTimeout(next, 250); 
+                                        }} 
+                                        className={`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 ${answers[currentQuestion.id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}`}
+                                    >
                                         {c.text}
                                     </button>
                                 ))}
                             </div>
-                            {settings.timerMode === 'total' && <div className="mt-8 flex justify-end"><button onClick={next} className="px-6 py-2 bg-white text-black rounded-lg font-bold">Next</button></div>}
+                            {settings.timerMode === 'total' && <div className="mt-8 flex justify-end"><button onClick={next} disabled={transitioning || submitting} className="px-6 py-2 bg-white text-black rounded-lg font-bold">Next</button></div>}
                         </div>
                     </div>
                 );
