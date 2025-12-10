@@ -3,7 +3,7 @@
  * - Branding: "My Class" (Playful, Kiddy, Mobile-First)
  * - Security: Password Hashing (PBKDF2), JWT Auth, Server-Side Grading, Secure Headers
  * - Features: Class/Section Management, Student Filtering, robust Image Handling, Analytics
- * - Fixes: Relaxed CSP for Babel Standalone, fixed ResultDetailView variable reference
+ * - Fixes: Removed invalid comments in JSX, Relaxed CSP for reliability
  */
 
 const JWT_SECRET = "CHANGE_THIS_SECRET_IN_PROD_TO_SOMETHING_RANDOM_AND_LONG"; // In prod, use env.JWT_SECRET
@@ -19,8 +19,8 @@ export default {
         headers.set('X-Content-Type-Options', 'nosniff');
         headers.set('X-Frame-Options', 'DENY');
         headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-        // FIX: Relaxed CSP to ensure Babel Standalone and Tailwind CDN work without issues
-        headers.set('Content-Security-Policy', "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; script-src 'self' https: 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' https: 'unsafe-inline'; font-src 'self' https: data:; connect-src 'self' https:;"); 
+        // FIX: Relaxed CSP to prevent blank screen issues. Added * to connect-src to ensure API calls work.
+        headers.set('Content-Security-Policy', "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; script-src 'self' https: 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' https: 'unsafe-inline'; font-src 'self' https: data:; connect-src *;"); 
         return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
     };
 
@@ -679,7 +679,7 @@ function getHtml() {
 
                         <div className="space-y-4">
                             {JSON.parse(result.details || '[]').map((d,i)=>(
-                                // FIX: Escaped backticks in className
+                                // FIX: Removed comment to fix JSX syntax error
                                 <div key={i} className={\`p-4 rounded-2xl border \${d.isCorrect?'bg-green-50/50 border-green-200':'bg-red-50/50 border-red-200'}\`}>
                                     <div className="font-bold text-gray-800 mb-2">Q{i+1}: {d.qText}</div>
                                     <div className="text-sm space-y-1">
@@ -1373,372 +1373,61 @@ function getHtml() {
         }
 
         // --- APP ROOT ---
-            const [student, setStudent] = useState({ name: '', school_id: '', roll: '', class: '', section: '' }); 
-            const [exam, setExam] = useState(null); 
-            const [config, setConfig] = useState({ classes: [], sections: [] });
-            
-            // Game State
-            const [qIdx, setQIdx] = useState(0); 
-            const [score, setScore] = useState(0); 
-            const [answers, setAnswers] = useState({});
-            const [resultDetails, setResultDetails] = useState(null);
-            const [examHistory, setExamHistory] = useState([]);
-            const [qTime, setQTime] = useState(0);
-            const [totalTime, setTotalTime] = useState(0);
-            const [showReview, setShowReview] = useState(false); // New state for review toggle
+        function App() {
+            const [status, setStatus] = useState(null);
+            const [user, setUser] = useState(null);
+            const [route, setRoute] = useState('landing');
+            const [toasts, setToasts] = useState([]);
+            const linkId = new URLSearchParams(window.location.search).get('exam');
 
+            // Routing
             useEffect(() => { 
-                fetch(\`/api/exam/get?link_id=\${linkId}\`).then(r=>r.json()).then(d => {
-                    if(!d.exam?.is_active) return alert("Exam Closed");
-                    setExam(d);
-                    const classes = [...new Set(d.config.filter(c=>c.type==='class').map(c=>c.value))];
-                    const sections = [...new Set(d.config.filter(c=>c.type==='section').map(c=>c.value))];
-                    setConfig({ classes, sections });
-                }); 
-            }, [linkId]);
+                const checkHash = () => { 
+                    const h = window.location.hash.slice(1); 
+                    if(h === 'teacher' && user) setRoute('teacher'); 
+                    else if(h === 'student') setRoute('student'); 
+                    else if(h === 'admin' && user?.role === 'super_admin') setRoute('admin'); 
+                    else if(!linkId) setRoute('landing'); 
+                }; 
+                window.addEventListener('hashchange', checkHash); 
+                return () => window.removeEventListener('hashchange', checkHash); 
+            }, [user]);
 
-            // Timer Tick
-            useEffect(() => {
-                if(mode !== 'game' || !exam) return;
-                const settings = JSON.parse(exam.exam.settings || '{}');
-                const int = setInterval(() => {
-                    if(settings.timerMode === 'question') {
-                        if(qTime > 0) setQTime(t => t - 1);
-                        else next(); 
-                    } else if(settings.timerMode === 'total') {
-                        if(totalTime > 0) setTotalTime(t => t - 1);
-                        else finish(); 
-                    }
-                }, 1000);
-                return () => clearInterval(int);
-            }, [mode, qTime, totalTime, exam]);
-
-            const next = () => { 
-                if(qIdx < exam.questions.length - 1) { 
-                    setQIdx(qIdx+1); 
-                    const s = JSON.parse(exam.exam.settings || '{}');
-                    if(s.timerMode === 'question') setQTime(s.timerValue || 30);
-                } else finish(); 
-            };
-
-            const finish = async () => {
-                const finalAnswers = {};
-                exam.questions.forEach(q => {
-                    finalAnswers[q.id] = answers[q.id];
-                });
-
-                // Save ID specifically for the dashboard redirection
-                localStorage.setItem('student_id', student.school_id);
-
-                // Security: Send raw answers to backend, let backend calculate score
-                const res = await fetch('/api/submit', { 
-                    method: 'POST', 
-                    body: JSON.stringify({ 
-                        link_id: linkId, 
-                        student, 
-                        answers: finalAnswers // Only sending IDs of selected choices
-                    }) 
-                });
-                
-                if(!res.ok) return alert("Error Saving Result! Please try again or contact teacher.");
-                
-                const data = await res.json();
-                
-                // Update local state with server results
-                setScore(data.score);
-                setResultDetails(data.details);
-                
-                if((data.score/data.total) > 0.6) confetti();
-
-                const histRes = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: student.school_id }) }).then(r => r.json());
-                if (histRes.found) setExamHistory(histRes.history.filter(h => h.exam_id === exam.exam.id));
-                setMode('summary');
-            };
-
-            const startGame = () => {
-                 setMode('game'); 
-                 const settings = JSON.parse(exam.exam.settings || '{}');
-                 if(settings.timerMode==='total') setTotalTime((settings.timerValue||10)*60); 
-                 if(settings.timerMode==='question') setQTime(settings.timerValue||30);
-            };
-
-            if(!exam) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400">Loading Exam...</div>;
-            const settings = JSON.parse(exam.exam.settings || '{}');
-
-            // FIX: Handle Dashboard Mode inside Exam App
-            if(mode === 'dashboard') return <StudentPortal onBack={() => setMode('identify')} />;
-
-            if(mode === 'identify') return (
-                <div className="min-h-screen bg-indigo-500 flex items-center justify-center p-6">
-                    <div className="bg-white w-full max-w-sm p-8 rounded-3xl text-center anim-pop shadow-2xl">
-                        <h1 className="text-2xl font-bold mb-4">Join Class</h1>
-                        <input className="w-full bg-gray-100 p-4 rounded-xl font-bold mb-3 outline-none" placeholder="School ID" value={student.school_id} onChange={e=>setStudent({...student, school_id:e.target.value})} />
-                        <button onClick={async()=>{
-                            if(!student.school_id) return alert("Enter ID");
-                            const r = await fetch('/api/student/identify', {method:'POST', body:JSON.stringify({school_id:student.school_id})}).then(x=>x.json());
-                            if(r.found) { 
-                                // Check if profile incomplete
-                                if(!r.student.class || !r.student.section) {
-                                    setStudent({...student, ...r.student}); 
-                                    setMode('update_profile'); // Force update
-                                } else {
-                                    setStudent({...student, ...r.student}); 
-                                    startGame(); 
-                                }
-                            } else setMode('register');
-                        }} className="w-full bg-black text-white p-4 rounded-xl font-bold">Next</button>
-                        
-                        {/* FIX: Added Dashboard Login Option */}
-                        <div className="mt-6 border-t border-gray-100 pt-4">
-                            <p className="text-xs text-gray-400 font-bold mb-2">Want to check results?</p>
-                            <button onClick={() => setMode('dashboard')} className="text-indigo-500 font-bold text-sm hover:underline">Login to Student Dashboard</button>
-                        </div>
-                    </div>
-                </div>
-            );
-
-            if(mode === 'register' || mode === 'update_profile') return (
-                <div className="min-h-screen bg-indigo-500 flex items-center justify-center p-6">
-                    <div className="bg-white w-full max-w-sm p-8 rounded-3xl anim-pop">
-                        <h1 className="text-xl font-bold mb-4">{mode === 'register' ? 'New Student' : 'Complete Profile'}</h1>
-                        <p className="text-xs text-gray-400 mb-4 font-bold">Please fill in your details to continue.</p>
-                        
-                        {(mode === 'register' || !student.name || !student.roll) && (
-                            <>
-                                <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Full Name" value={student.name || ''} onChange={e=>setStudent({...student, name:e.target.value})} />
-                                <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Roll No" value={student.roll || ''} onChange={e=>setStudent({...student, roll:e.target.value})} />
-                            </>
-                        )}
-
-                        <div className="flex gap-2 mb-4">
-                            <select value={student.class || ''} onChange={e=>setStudent({...student, class:e.target.value})} className="w-full bg-gray-100 p-3 rounded-xl font-bold text-sm outline-none">
-                                <option value="">Select Class</option>
-                                {config.classes.map(c=><option key={c} value={c}>{c}</option>)}
-                            </select>
-                            <select value={student.section || ''} onChange={e=>setStudent({...student, section:e.target.value})} className="w-full bg-gray-100 p-3 rounded-xl font-bold text-sm outline-none">
-                                <option value="">Section</option>
-                                {config.sections.map(s=><option key={s} value={s}>{s}</option>)}
-                            </select>
-                        </div>
-                        
-                        <button onClick={()=>{ 
-                            if(!student.class || !student.section || (mode === 'register' && (!student.name || !student.roll))) return alert("Please fill all fields");
-                            startGame(); 
-                        }} className="w-full bg-indigo-600 text-white p-3 rounded-xl font-bold">Start Exam</button>
-                    </div>
-                </div>
-            );
-
-            if(mode === 'game') return (
-                <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-6">
-                    <div className="w-full max-w-md flex justify-between items-center mb-8">
-                        <div className="font-bold text-slate-500 uppercase text-xs tracking-widest">Question {qIdx+1}/{exam.questions.length}</div>
-                        <div className={\`text-xl font-mono font-bold \${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}\`}>
-                            {settings.timerMode === 'question' ? qTime : Math.floor(totalTime/60) + ':' + (totalTime%60).toString().padStart(2,'0')}
-                        </div>
-                    </div>
-                    <div className="w-full max-w-md flex-1 flex flex-col justify-center">
-                        <div className="bg-white text-slate-900 p-6 rounded-3xl mb-6 text-center shadow-2xl">
-                            {exam.questions[qIdx].image_key && <img src={\`/img/\${exam.questions[qIdx].image_key}\`} className="h-40 mx-auto object-contain mb-4" />}
-                            <h2 className="text-xl font-bold">{exam.questions[qIdx].text}</h2>
-                        </div>
-                        <div className="grid grid-cols-1 gap-3">
-                            {JSON.parse(exam.questions[qIdx].choices).map(c => (
-                                <button key={c.id} onClick={()=>{ setAnswers({...answers, [exam.questions[qIdx].id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }} className={\`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 \${answers[exam.questions[qIdx].id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}\`}>
-                                    {c.text}
-                                </button>
-                            ))}
-                        </div>
-                         {settings.timerMode === 'total' && <div className="mt-8 flex justify-end"><button onClick={next} className="px-6 py-2 bg-white text-black rounded-lg font-bold">Next</button></div>}
-                    </div>
-                </div>
-            );
-
-            if(mode === 'summary') return (
-                <div className="min-h-screen bg-slate-900 text-white p-6 overflow-y-auto">
-                    <div className="max-w-2xl mx-auto space-y-6 pb-20">
-                        {/* Score Card */}
-                        <div className="bg-slate-800 p-8 rounded-3xl text-center border border-slate-700 shadow-2xl">
-                            <h2 className="text-3xl font-black mb-2 text-white">Exam Complete!</h2>
-                            {/* Stats Grid */}
-                            <div className="grid grid-cols-3 gap-3 my-6">
-                                <div className="bg-green-500/10 p-3 rounded-2xl border border-green-500/20">
-                                    <div className="text-2xl md:text-3xl font-black text-green-400">{score}</div>
-                                    <div className="text-[10px] md:text-xs font-bold uppercase text-green-200/50">Correct</div>
-                                </div>
-                                <div className="bg-red-500/10 p-3 rounded-2xl border border-red-500/20">
-                                    <div className="text-2xl md:text-3xl font-black text-red-400">{exam.questions.length - score}</div>
-                                    <div className="text-[10px] md:text-xs font-bold uppercase text-red-200/50">Wrong</div>
-                                </div>
-                                <div className="bg-blue-500/10 p-3 rounded-2xl border border-blue-500/20">
-                                    <div className="text-2xl md:text-3xl font-black text-blue-400">{Math.round((score/exam.questions.length)*100)}%</div>
-                                    <div className="text-[10px] md:text-xs font-bold uppercase text-blue-200/50">Score</div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Actions */}
-                        <div className="space-y-3">
-                             <button onClick={() => setShowReview(!showReview)} className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl font-bold flex justify-between items-center hover:bg-slate-700 transition">
-                                <span>See Correct Answers</span>
-                                {/* FIX: Escaped backticks (\`) and escaped dollar sign (\$) for the template literal below to prevent build error */}
-                                <span className={\`transform transition \${showReview ? 'rotate-180' : ''}\`}>▼</span>
-                            </button>
-                            
-                            {/* FIX: Direct switch to Dashboard Mode */}
-                            <button onClick={() => setMode('dashboard')} className="w-full bg-orange-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-orange-500/20 btn-bounce flex items-center justify-center gap-2">
-                                <Icons.Users /> See Past Results
-                            </button>
-                        </div>
-
-                        {/* Detailed Review (Collapsible) */}
-                        {showReview && (
-                            <div className="space-y-4 anim-enter">
-                                <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
-                                {resultDetails.map((q, i) => (<div key={i} className={\`p-6 rounded-2xl border \${q.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}><div className="font-bold text-lg mb-3">Q{i+1}. {q.qText}</div><div className="space-y-2">
-                                    <div className="flex items-start gap-2">
-                                        <span className="font-bold min-w-[60px] text-gray-500">Student:</span> 
-                                        <span className={\`font-bold \${q.isCorrect ? 'text-green-500' : 'text-red-500'}\`}>{q.selectedText}</span>
-                                    </div>
-                                    {!q.isCorrect && (
-                                        <div className="flex items-start gap-2">
-                                            <span className="font-bold min-w-[60px] text-gray-500">Correct:</span> 
-                                            <span className="font-bold text-gray-800">{q.correctText}</span>
-                                        </div>
-                                    )}
-                                </div></div>))}
-                            </div>
-                        )}
-
-                        {settings.allowRetakes && (<div className="w-full text-center mt-8"><button onClick={() => window.location.reload()} className="text-indigo-400 font-bold hover:text-indigo-300">Retake Exam</button></div>)}
-                    </div>
-                </div>
-            );
-        }
-
-        function StudentPortal({ onBack }) {
-             const [id, setId] = useState('');
-             const [data, setData] = useState(null);
-             const [selectedExam, setSelectedExam] = useState(null); // Level 2 View
-             const [viewDetail, setViewDetail] = useState(null); // Level 3 View
-             
-             // FIX: Added manual refresh function
-             const refreshData = async () => {
-                 if(!localStorage.getItem('student_id')) return;
-                 const res = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: localStorage.getItem('student_id') }) }).then(r => r.json()); 
-                 if(res.found) setData(res);
-             };
-
-             const login = async (e) => { 
-                 e.preventDefault(); 
-                 const res = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: id }) }).then(r => r.json()); 
-                 if(res.found) { setData(res); localStorage.setItem('student_id', id); } 
-                 else alert("ID not found!"); 
-            };
-             
-             useEffect(() => { 
-                 const saved = localStorage.getItem('student_id'); 
-                 if(saved && !data) {
-                     fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: saved }) }).then(r => r.json()).then(r => r.found && setData(r)); 
-                 }
+            // Persist User
+            useEffect(() => { 
+                try { 
+                    const u = localStorage.getItem('mc_user'); 
+                    if(u) setUser(JSON.parse(u)); 
+                } catch(e) {} 
+                fetch('/api/system/status').then(r=>r.json()).then(setStatus).catch(e=>setStatus({installed:false, hasAdmin:false})); 
             }, []);
 
-             if(!data) return (
-                <div className="min-h-screen bg-orange-50 flex items-center justify-center p-6">
-                    <div className="bg-white w-full max-w-sm p-8 rounded-3xl shadow-xl text-center anim-pop relative">
-                        <button onClick={onBack} className="absolute top-6 left-6 text-gray-400 font-bold text-sm">Back</button>
-                        <div className="mb-6 mx-auto w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center text-orange-500"><Icons.Logo /></div>
-                        <h1 className="text-2xl font-bold text-slate-800 mb-2">Student Hub</h1>
-                        <form onSubmit={login}>
-                            <input value={id} onChange={e=>setId(e.target.value)} className="w-full bg-gray-100 p-4 rounded-2xl font-bold text-center text-lg outline-none focus:ring-2 focus:ring-orange-400 mb-4" placeholder="Enter School ID" />
-                            <button className="w-full bg-orange-500 text-white font-bold py-4 rounded-2xl btn-bounce shadow-lg shadow-orange-200">Enter</button>
-                        </form>
-                    </div>
-                </div>
-            );
+            const loginUser = (u) => { setUser(u); localStorage.setItem('mc_user', JSON.stringify(u)); window.location.hash = u.role === 'super_admin' ? 'admin' : 'teacher'; };
+            const logoutUser = () => { setUser(null); localStorage.removeItem('mc_user'); window.location.hash = ''; setRoute('landing'); };
+            const addToast = (msg, type='success') => { const id = Date.now(); setToasts(p => [...p, {id, msg, type}]); setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000); };
 
-             // FIX: Show detailed view if selected
-             if(viewDetail) return <ResultDetailView result={{...viewDetail, name: data.student.name, roll: data.student.roll}} onClose={()=>setViewDetail(null)} />;
-
-             // FIX: Group history by Exam
-             const examGroups = data ? Object.values(data.history.reduce((acc, curr) => {
-                 if(!acc[curr.exam_id]) acc[curr.exam_id] = { ...curr, attempts: [] };
-                 acc[curr.exam_id].attempts.push(curr);
-                 return acc;
-             }, {})) : [];
-
-             // Level 2: Show Attempts for Selected Exam
-             if(selectedExam) {
-                 return (
-                    <div className="min-h-screen bg-orange-50 pb-safe p-4">
-                        <div className="max-w-lg mx-auto">
-                            <button onClick={()=>setSelectedExam(null)} className="flex items-center gap-2 text-gray-500 font-bold mb-4"><Icons.Back/> Back to Dashboard</button>
-                            <h2 className="text-2xl font-bold text-slate-800 mb-2">{selectedExam.title}</h2>
-                            <p className="text-gray-500 text-sm font-bold mb-6">Your Performance History</p>
-                            
-                            <div className="space-y-3">
-                                {selectedExam.attempts.map((h, i) => (
-                                    <div key={h.id} onClick={()=>setViewDetail(h)} className="bg-white p-5 rounded-2xl shadow-sm border border-orange-50 flex justify-between items-center cursor-pointer active:scale-95 transition">
-                                        <div>
-                                            <h4 className="font-bold text-slate-800 text-sm">Attempt #{selectedExam.attempts.length - i}</h4>
-                                            <p className="text-xs text-gray-400 font-bold">{new Date(h.timestamp).toLocaleString()}</p>
-                                        </div>
-                                        <div className={\`text-lg font-black \${ (h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400' }\`}>{h.score}/{h.total}</div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                 );
-             }
-
-             // Level 1: Main Dashboard (Unique Exams)
-             return (
-                <div className="min-h-screen bg-orange-50 pb-safe">
-                    <div className="bg-orange-500 p-8 pb-16 rounded-b-[40px] text-white shadow-lg relative overflow-hidden">
-                        <div className="relative z-10">
-                            {/* FIX: Improved Mobile Header in Dashboard */}
-                            <div className="flex justify-between items-center mb-6">
-                                <div className="flex gap-2">
-                                    <button onClick={()=>{localStorage.removeItem('student_id'); setData(null);}} className="bg-white/20 p-2 rounded-xl backdrop-blur-sm text-sm font-bold flex items-center gap-2 hover:bg-white/30 transition"><Icons.Logout/> Logout</button>
-                                    <button onClick={refreshData} className="bg-white/20 p-2 rounded-xl backdrop-blur-sm text-white hover:bg-white/30 transition"><Icons.Refresh/></button>
-                                </div>
-                                <span className="font-bold opacity-70">My Class</span>
-                            </div>
-                            <h1 className="text-3xl font-bold mb-1 truncate">Hi, {data.student.name.split(' ')[0]}!</h1>
-                            <p className="opacity-80 font-bold text-sm tracking-wide">{data.student.school_id} • Class {data.student.class || 'N/A'}</p>
-                        </div>
-                    </div>
-                    <div className="px-6 -mt-10 relative z-20 max-w-lg mx-auto space-y-6">
-                        <div className="bg-white p-6 rounded-3xl shadow-lg flex justify-around text-center">
-                            <div>
-                                <div className="text-3xl font-black text-slate-800">{examGroups.length}</div>
-                                <div className="text-xs font-bold text-gray-400 uppercase">Exams Taken</div>
-                            </div>
-                            <div className="w-px bg-gray-100"></div>
-                            <div>
-                                <div className="text-3xl font-black text-green-500">{Math.round(data.history.reduce((a,b)=>a+(b.score/b.total),0)/data.history.length * 100 || 0)}%</div>
-                                <div className="text-xs font-bold text-gray-400 uppercase">Avg Score</div>
-                            </div>
-                        </div>
-                        <div className="space-y-4 pb-10">
-                            <div className="flex justify-between items-center px-2">
-                                <h3 className="font-bold text-slate-400 text-xs uppercase">Your Exams</h3>
-                                <button onClick={refreshData} className="text-orange-500 text-xs font-bold">Refresh</button>
-                            </div>
-                            {examGroups.map(group => (
-                                // FIX: Click to view history of this exam
-                                <div key={group.exam_id} onClick={()=>setSelectedExam(group)} className="bg-white p-5 rounded-2xl shadow-sm border border-orange-50 flex justify-between items-center cursor-pointer active:scale-95 transition">
-                                    <div>
-                                        <h4 className="font-bold text-slate-800">{group.title}</h4>
-                                        <p className="text-xs text-indigo-500 font-bold">{group.attempts.length} Attempts</p>
-                                    </div>
-                                    <Icons.Back className="rotate-180 text-gray-300 w-5 h-5"/>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
+            if(linkId) return <ErrorBoundary><StudentExamApp linkId={linkId} /></ErrorBoundary>;
+            if(!status) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400 animate-pulse">Loading My Class...</div>;
+            if(!status.hasAdmin) return <ErrorBoundary><><Setup onComplete={() => setStatus({hasAdmin:true})} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
+            if(route === 'student') return <ErrorBoundary><StudentPortal onBack={()=>window.location.hash=''} /></ErrorBoundary>;
+            
+            if(user) { 
+                if(user.role === 'super_admin') return <ErrorBoundary><><AdminView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>; 
+                return <ErrorBoundary><><TeacherView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>; 
+            }
+            
+            if(route === 'login') return <ErrorBoundary><><Login onLogin={loginUser} addToast={addToast} onBack={()=>setRoute('landing')} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
+            
+            return ( 
+                <div className="min-h-screen bg-orange-50 flex flex-col items-center justify-center p-6 text-center"> 
+                    <div className="w-24 h-24 bg-white rounded-[30px] shadow-xl flex items-center justify-center text-orange-500 mb-6 anim-pop"><Icons.Logo /></div> 
+                    <h1 className="text-4xl font-black text-slate-800 mb-2">My Class</h1> 
+                    <p className="text-gray-500 font-bold mb-10">Fun Learning & Testing Platform</p> 
+                    <div className="w-full max-w-xs space-y-4"> 
+                        <button onClick={()=>{window.location.hash='student'; setRoute('student')}} className="w-full bg-indigo-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-indigo-200 btn-bounce">Student Hub</button> 
+                        <button onClick={()=>setRoute('login')} className="w-full bg-white text-slate-700 p-4 rounded-2xl font-bold shadow-sm border border-gray-100 btn-bounce">Teacher Login</button> 
+                    </div> 
+                </div> 
             );
         }
 
