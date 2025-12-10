@@ -1,36 +1,31 @@
 /**
  * Cloudflare Worker - My Class (SaaS Masterclass)
- * - Branding: "My Class" (Playful, Kiddy, Mobile-First)
- * - Security: Password Hashing (PBKDF2), JWT Auth, Server-Side Grading, Secure Headers
- * - Features: Class/Section Management, Student Filtering, robust Image Handling, Analytics
- * - Fixes: Removed invalid comments in JSX, Relaxed CSP for reliability
+ * - Security: Password Hashing, JWT, Server-Side Grading, Secure Headers
+ * - Features: Admin/Teacher/Student portals, Analytics, R2 Images
+ * - Fixes: Solved blank screen (SyntaxErrors), fixed Student Summary View variable references
  */
 
-const JWT_SECRET = "CHANGE_THIS_SECRET_IN_PROD_TO_SOMETHING_RANDOM_AND_LONG"; // In prod, use env.JWT_SECRET
+const JWT_SECRET = "CHANGE_THIS_SECRET_IN_PROD_TO_SOMETHING_RANDOM_AND_LONG"; 
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // --- SECURE HEADERS HELPER ---
     const addSecureHeaders = (res) => {
         const headers = new Headers(res.headers);
         headers.set('X-Content-Type-Options', 'nosniff');
         headers.set('X-Frame-Options', 'DENY');
         headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-        // FIX: Relaxed CSP to prevent blank screen issues. Added * to connect-src to ensure API calls work.
         headers.set('Content-Security-Policy', "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; script-src 'self' https: 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' https: 'unsafe-inline'; font-src 'self' https: data:; connect-src *;"); 
         return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
     };
 
-    // --- API ROUTES ---
     if (path.startsWith('/api/')) {
       const response = await handleApi(request, env, path, url);
       return addSecureHeaders(response);
     }
 
-    // --- IMAGE SERVING (R2) ---
     if (path.startsWith('/img/')) {
       const key = path.split('/img/')[1];
       if (!key) return new Response('Image ID required', { status: 400 });
@@ -41,12 +36,11 @@ export default {
       const headers = new Headers();
       object.writeHttpMetadata(headers);
       headers.set('etag', object.httpEtag);
-      headers.set('Cache-Control', 'public, max-age=31536000'); // Cache images
+      headers.set('Cache-Control', 'public, max-age=31536000'); 
 
       return new Response(object.body, { headers });
     }
 
-    // --- FRONTEND SERVING ---
     return addSecureHeaders(new Response(getHtml(), {
       headers: { 'Content-Type': 'text/html' },
     }));
@@ -75,7 +69,7 @@ async function signJwt(payload) {
     const encoder = new TextEncoder();
     const key = await crypto.subtle.importKey('raw', encoder.encode(JWT_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
     const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-    const body = btoa(JSON.stringify({ ...payload, exp: Date.now() + 86400000 })); // 24h expiry
+    const body = btoa(JSON.stringify({ ...payload, exp: Date.now() + 86400000 })); 
     const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(`${header}.${body}`));
     return `${header}.${body}.${btoa(String.fromCharCode(...new Uint8Array(signature))).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')}`;
 }
@@ -101,7 +95,6 @@ async function verifyJwt(request) {
 async function handleApi(request, env, path, url) {
   const method = request.method;
 
-  // Middleware for Admin/Teacher routes
   const requireAuth = async (role = 'teacher') => {
       const user = await verifyJwt(request);
       if (!user) throw new Error("Unauthorized");
@@ -110,7 +103,6 @@ async function handleApi(request, env, path, url) {
   };
 
   try {
-    // 1. SYSTEM INIT & RESET
     if (path === '/api/system/status' && method === 'GET') {
       try {
         const count = await env.DB.prepare("SELECT COUNT(*) as count FROM users").first('count');
@@ -130,10 +122,8 @@ async function handleApi(request, env, path, url) {
           env.DB.prepare("CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER, text TEXT, image_key TEXT, choices TEXT)"),
           env.DB.prepare("CREATE TABLE IF NOT EXISTS attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER, student_db_id INTEGER, score INTEGER, total INTEGER, details TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(student_db_id) REFERENCES students(id))")
         ]);
-        
         try { await env.DB.prepare("ALTER TABLE students ADD COLUMN class TEXT").run(); } catch(e) {}
         try { await env.DB.prepare("ALTER TABLE students ADD COLUMN section TEXT").run(); } catch(e) {}
-
         return Response.json({ success: true });
       } catch (err) {
         return Response.json({ error: "DB Init Error: " + err.message }, { status: 500 });
@@ -141,20 +131,16 @@ async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/system/reset' && method === 'POST') {
-        // Only Admin can reset
         await requireAuth('super_admin'); 
         try {
-            // FIX: Drop ALL tables first to ensure a complete wipe
             await env.DB.batch([
                 env.DB.prepare("DROP TABLE IF EXISTS attempts"),
                 env.DB.prepare("DROP TABLE IF EXISTS questions"),
                 env.DB.prepare("DROP TABLE IF EXISTS exams"),
                 env.DB.prepare("DROP TABLE IF EXISTS school_config"),
                 env.DB.prepare("DROP TABLE IF EXISTS students"),
-                env.DB.prepare("DROP TABLE IF EXISTS users"), // Deletes admin accounts
+                env.DB.prepare("DROP TABLE IF EXISTS users"),
             ]);
-
-            // FIX: Immediately Recreate Empty Tables (Fresh Start)
             await env.DB.batch([
                 env.DB.prepare("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT, name TEXT, role TEXT DEFAULT 'teacher', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
                 env.DB.prepare("CREATE TABLE IF NOT EXISTS students (id INTEGER PRIMARY KEY AUTOINCREMENT, school_id TEXT UNIQUE, name TEXT, roll TEXT, class TEXT, section TEXT, extra_info TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
@@ -163,14 +149,12 @@ async function handleApi(request, env, path, url) {
                 env.DB.prepare("CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER, text TEXT, image_key TEXT, choices TEXT)"),
                 env.DB.prepare("CREATE TABLE IF NOT EXISTS attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER, student_db_id INTEGER, score INTEGER, total INTEGER, details TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(student_db_id) REFERENCES students(id))")
             ]);
-
             return Response.json({ success: true });
         } catch(e) {
             return Response.json({ error: e.message }, { status: 500 });
         }
     }
 
-    // 2. CONFIG (Classes/Sections)
     if (path === '/api/config/get' && method === 'GET') {
         try {
             const data = await env.DB.prepare("SELECT * FROM school_config ORDER BY value ASC").all();
@@ -195,17 +179,13 @@ async function handleApi(request, env, path, url) {
         return Response.json({ success: true });
     }
 
-    // 3. AUTH & USER MANAGEMENT
     if (path === '/api/auth/setup-admin' && method === 'POST') {
       let count = 0;
       try { count = await env.DB.prepare("SELECT COUNT(*) as count FROM users").first('count'); } 
       catch(e) { return Response.json({ error: "Database not initialized." }, { status: 500 }); }
-
       if (count > 0) return Response.json({ error: "Admin already exists" }, { status: 403 });
-
       const { username, password, name } = await request.json();
       const hashedPassword = await hashPassword(password);
-      
       await env.DB.prepare("INSERT INTO users (username, password, name, role) VALUES (?, ?, ?, 'super_admin')")
         .bind(username, hashedPassword, name).run();
       return Response.json({ success: true });
@@ -214,12 +194,9 @@ async function handleApi(request, env, path, url) {
     if (path === '/api/auth/login' && method === 'POST') {
       const { username, password } = await request.json();
       const user = await env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first();
-      
       if (!user || !(await verifyPassword(password, user.password))) {
           return Response.json({ error: "Invalid credentials" }, { status: 401 });
       }
-      
-      // Issue Token
       const token = await signJwt({ id: user.id, role: user.role, name: user.name });
       return Response.json({ success: true, user: { ...user, password: '' }, token });
     }
@@ -269,17 +246,12 @@ async function handleApi(request, env, path, url) {
         return Response.json({ success: true });
     }
 
-    // 4. EXAM MANAGEMENT
     if (path === '/api/exam/save' && method === 'POST') {
-      const user = await requireAuth('teacher'); // Admins can act as teachers too if role logic allows, but simpler to enforce teacher
+      const user = await requireAuth('teacher'); 
       const { id, title, teacher_id, settings } = await request.json();
-      
-      // Strict Check: Ensure user is modifying their own exam (or is admin)
       if (user.role !== 'super_admin' && parseInt(teacher_id) !== user.id) return Response.json({error:"Unauthorized"}, {status:403});
-
       let examId = id;
       let link_id = null;
-
       if(examId) {
           await env.DB.prepare("UPDATE exams SET title = ?, settings = ? WHERE id = ?")
             .bind(title, JSON.stringify(settings), examId).run();
@@ -296,8 +268,6 @@ async function handleApi(request, env, path, url) {
     if (path === '/api/exam/delete' && method === 'POST') {
         const user = await requireAuth('teacher');
         const { id } = await request.json();
-        
-        // Security check: does exam belong to user?
         const exam = await env.DB.prepare("SELECT teacher_id FROM exams WHERE id = ?").bind(id).first();
         if(exam && (user.role === 'super_admin' || exam.teacher_id === user.id)) {
             await env.DB.batch([
@@ -313,7 +283,6 @@ async function handleApi(request, env, path, url) {
     if (path === '/api/exam/toggle' && method === 'POST') {
         const user = await requireAuth('teacher');
         const { id, is_active } = await request.json();
-        // Security check ownership
         const exam = await env.DB.prepare("SELECT teacher_id FROM exams WHERE id = ?").bind(id).first();
         if(exam && (user.role === 'super_admin' || exam.teacher_id === user.id)) {
             await env.DB.prepare("UPDATE exams SET is_active = ? WHERE id = ?").bind(is_active ? 1 : 0, id).run();
@@ -326,16 +295,12 @@ async function handleApi(request, env, path, url) {
       const user = await requireAuth('teacher');
       const formData = await request.formData();
       const exam_id = formData.get('exam_id');
-      
-      // Verify ownership of exam before adding question
       const exam = await env.DB.prepare("SELECT teacher_id FROM exams WHERE id = ?").bind(exam_id).first();
       if(!exam || (user.role !== 'super_admin' && exam.teacher_id !== user.id)) return Response.json({error:"Unauthorized"},{status:403});
-
       const text = formData.get('text');
       const choices = formData.get('choices');
       const image = formData.get('image'); 
       const existing_image_key = formData.get('existing_image_key');
-
       let image_key = null;
       if (image && image.size > 0) {
         image_key = crypto.randomUUID();
@@ -343,7 +308,6 @@ async function handleApi(request, env, path, url) {
       } else if (existing_image_key && existing_image_key !== 'null' && existing_image_key !== 'undefined') {
         image_key = existing_image_key;
       }
-
       await env.DB.prepare("INSERT INTO questions (exam_id, text, image_key, choices) VALUES (?, ?, ?, ?)")
         .bind(exam_id, text, image_key, choices).run();
       return Response.json({ success: true });
@@ -352,9 +316,7 @@ async function handleApi(request, env, path, url) {
     if (path === '/api/teacher/exams' && method === 'GET') {
       const user = await requireAuth('teacher');
       const teacherId = url.searchParams.get('teacher_id');
-      // Users can only see their own exams unless super_admin
       if (user.role !== 'super_admin' && parseInt(teacherId) !== user.id) return Response.json({error: "Unauthorized"}, {status: 403});
-
       try {
           const exams = await env.DB.prepare("SELECT * FROM exams WHERE teacher_id = ? ORDER BY created_at DESC").bind(teacherId).all();
           return Response.json(exams.results);
@@ -364,21 +326,17 @@ async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/teacher/exam-details' && method === 'GET') {
-        await requireAuth('teacher'); // Just need to be logged in
+        await requireAuth('teacher'); 
         const examId = url.searchParams.get('id');
         const exam = await env.DB.prepare("SELECT * FROM exams WHERE id = ?").bind(examId).first();
         const questions = await env.DB.prepare("SELECT * FROM questions WHERE exam_id = ?").bind(examId).all();
-        // Don't send isCorrect flags if we wanted to be super secure here too, but this is editor mode, so teacher needs them.
         return Response.json({ exam, questions: questions.results });
     }
 
-    // 5. STUDENT PORTAL (Public facing)
     if (path === '/api/student/portal-history' && method === 'POST') {
         const { school_id } = await request.json();
         const student = await env.DB.prepare("SELECT * FROM students WHERE school_id = ?").bind(school_id).first();
-        
         if(!student) return Response.json({ found: false });
-
         const history = await env.DB.prepare(`
             SELECT a.*, e.title, e.id as exam_id
             FROM attempts a 
@@ -386,14 +344,12 @@ async function handleApi(request, env, path, url) {
             WHERE a.student_db_id = ? 
             ORDER BY a.timestamp DESC
         `).bind(student.id).all();
-
         return Response.json({ found: true, student, history: history.results });
     }
 
     if (path === '/api/student/identify' && method === 'POST') {
         const { school_id } = await request.json();
         const student = await env.DB.prepare("SELECT * FROM students WHERE school_id = ?").bind(school_id).first();
-        
         if(student) {
             const stats = await env.DB.prepare(`
                 SELECT COUNT(*) as total_exams, AVG(CAST(score AS FLOAT)/CAST(total AS FLOAT))*100 as avg_score 
@@ -404,26 +360,20 @@ async function handleApi(request, env, path, url) {
         return Response.json({ found: false });
     }
 
-    // 6. EXAM DATA (Public facing)
     if (path === '/api/exam/get' && method === 'GET') {
       const link_id = url.searchParams.get('link_id');
       const exam = await env.DB.prepare("SELECT * FROM exams WHERE link_id = ?").bind(link_id).first();
       if(!exam) return Response.json({ error: "Exam not found" }, { status: 404 });
-      
       const questions = await env.DB.prepare("SELECT * FROM questions WHERE exam_id = ?").bind(exam.id).all();
-      
-      // SECURITY: Sanitize questions for student (remove isCorrect flag)
       const sanitizedQuestions = questions.results.map(q => ({
           ...q,
-          choices: JSON.stringify(JSON.parse(q.choices).map(c => ({ id: c.id, text: c.text }))) // Strip isCorrect
+          choices: JSON.stringify(JSON.parse(q.choices).map(c => ({ id: c.id, text: c.text }))) 
       }));
-
       let config = [];
       try {
           const c = await env.DB.prepare("SELECT * FROM school_config").all();
           config = c.results;
       } catch(e) {}
-      
       return Response.json({ exam, questions: sanitizedQuestions, config });
     }
     
@@ -431,33 +381,26 @@ async function handleApi(request, env, path, url) {
         const { exam_id, school_id } = await request.json();
         const student = await env.DB.prepare("SELECT id FROM students WHERE school_id = ?").bind(school_id).first();
         if(!student) return Response.json({ canTake: true });
-        
         const attempt = await env.DB.prepare("SELECT id FROM attempts WHERE exam_id = ? AND student_db_id = ?").bind(exam_id, student.id).first();
         return Response.json({ canTake: !attempt });
     }
 
-    // SECURITY: Server-Side Grading Implementation
     if (path === '/api/submit' && method === 'POST') {
-      const { link_id, student, answers } = await request.json(); // Removed 'score' input
-      
+      const { link_id, student, answers } = await request.json(); 
       const exam = await env.DB.prepare("SELECT id FROM exams WHERE link_id = ?").bind(link_id).first();
       if(!exam) return Response.json({error: "Invalid Exam"});
 
-      // Calculate Score on Server
       const questions = await env.DB.prepare("SELECT id, choices, text FROM questions WHERE exam_id = ?").bind(exam.id).all();
       let serverScore = 0;
       let total = questions.results.length;
       let detailedResults = [];
 
       questions.results.forEach(q => {
-          const studentAnswerId = answers[q.id]; // Access by question ID key
+          const studentAnswerId = answers[q.id]; 
           const dbChoices = JSON.parse(q.choices);
           const correctChoice = dbChoices.find(c => c.isCorrect);
-          
           const isCorrect = correctChoice && studentAnswerId === correctChoice.id;
           if (isCorrect) serverScore++;
-
-          // Build detail object for storage
           const studentChoice = dbChoices.find(c => c.id === studentAnswerId);
           detailedResults.push({
               qId: q.id,
@@ -469,18 +412,14 @@ async function handleApi(request, env, path, url) {
       });
 
       let studentRecord = await env.DB.prepare("SELECT id FROM students WHERE school_id = ?").bind(student.school_id).first();
-      
-      // Upsert Student
       if (!studentRecord) {
         try {
             const res = await env.DB.prepare("INSERT INTO students (school_id, name, roll, class, section) VALUES (?, ?, ?, ?, ?)")
             .bind(student.school_id, student.name, student.roll, student.class || null, student.section || null).run();
             studentRecord = { id: res.meta.last_row_id };
         } catch (e) {
-            // Auto-migration fallback
             try { await env.DB.prepare("ALTER TABLE students ADD COLUMN class TEXT").run(); } catch(err) {}
             try { await env.DB.prepare("ALTER TABLE students ADD COLUMN section TEXT").run(); } catch(err) {}
-            
             const res = await env.DB.prepare("INSERT INTO students (school_id, name, roll, class, section) VALUES (?, ?, ?, ?, ?)")
             .bind(student.school_id, student.name, student.roll, student.class || null, student.section || null).run();
             studentRecord = { id: res.meta.last_row_id };
@@ -490,7 +429,6 @@ async function handleApi(request, env, path, url) {
             await env.DB.prepare("UPDATE students SET name = ?, roll = ?, class = ?, section = ? WHERE id = ?")
                 .bind(student.name, student.roll, student.class || null, student.section || null, studentRecord.id).run();
         } catch (e) {
-             // Update fallback
              await env.DB.prepare("UPDATE students SET name = ?, roll = ?, class = ?, section = ? WHERE id = ?")
                 .bind(student.name, student.roll, student.class || null, student.section || null, studentRecord.id).run();
         }
@@ -499,11 +437,9 @@ async function handleApi(request, env, path, url) {
       await env.DB.prepare("INSERT INTO attempts (exam_id, student_db_id, score, total, details) VALUES (?, ?, ?, ?, ?)")
         .bind(exam.id, studentRecord.id, serverScore, total, JSON.stringify(detailedResults)).run();
 
-      // Return calculated results to frontend
       return Response.json({ success: true, score: serverScore, total, details: detailedResults });
     }
 
-    // 7. ANALYTICS
     if (path === '/api/analytics/exam' && method === 'GET') {
       await requireAuth('teacher');
       const examId = url.searchParams.get('exam_id');
@@ -538,7 +474,6 @@ async function handleApi(request, env, path, url) {
     }
 
   } catch (err) {
-    // If it's an auth error, return 401, else 500
     if (err.message === "Unauthorized" || err.message === "Forbidden") {
         return Response.json({ error: err.message }, { status: 401 });
     }
@@ -547,7 +482,6 @@ async function handleApi(request, env, path, url) {
   return new Response("Not Found", { status: 404 });
 }
 
-// --- FRONTEND ---
 function getHtml() {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -580,7 +514,6 @@ function getHtml() {
     <script type="text/babel">
         const { useState, useEffect, useMemo, Component } = React;
 
-        // --- AUTH HELPER ---
         const apiFetch = async (url, options = {}) => {
             const user = JSON.parse(localStorage.getItem('mc_user') || '{}');
             const headers = { 
@@ -596,7 +529,6 @@ function getHtml() {
             return res;
         };
 
-        // --- ERROR BOUNDARY ---
         class ErrorBoundary extends Component {
             constructor(props) { super(props); this.state = { hasError: false, error: null }; }
             static getDerivedStateFromError(error) { return { hasError: true, error }; }
@@ -615,7 +547,6 @@ function getHtml() {
             }
         }
 
-        // --- ICONS ---
         const Icons = {
             Logo: () => <svg className="w-8 h-8 text-orange-500" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zm0 9l2.5-1.25L12 8.5l-2.5 1.25L12 11zm0 2.5l-5-2.5-5 2.5L12 22l10-8.5-5-2.5-5 2.5z"/></svg>,
             Home: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>,
@@ -649,9 +580,7 @@ function getHtml() {
             </div>
         );
 
-        // FIX: Fixed unescaped backticks in Toggle component
         const Toggle = ({ checked, onChange }) => (
-            // FIX: Escaped backticks for className
             <button onClick={() => onChange(!checked)} className={\`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none \${checked ? 'bg-green-400' : 'bg-gray-200'}\`}>
                 <span className={\`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform \${checked ? 'translate-x-6' : 'translate-x-1'}\`} />
             </button>
@@ -659,8 +588,8 @@ function getHtml() {
 
         // --- COMPONENTS ---
 
-        // FIX: New Reusable Component for Detailed Results (Shared by Teacher & Student)
         function ResultDetailView({ result, onClose }) {
+            const details = Array.isArray(result.details) ? result.details : JSON.parse(result.details || '[]');
             return (
                 <div className="fixed inset-0 bg-white z-[60] overflow-y-auto anim-enter">
                     <div className="sticky top-0 bg-white/95 backdrop-blur border-b border-orange-100 p-4 flex justify-between items-center shadow-sm">
@@ -669,7 +598,6 @@ function getHtml() {
                     </div>
                     <div className="p-4 max-w-2xl mx-auto pb-20">
                         <h3 className="font-bold text-2xl mb-1 text-center">{result.name}</h3>
-                        {/* FIX: Escaped backticks in logic display */}
                         <p className="text-center text-gray-400 mb-6 font-bold">{result.roll ? \`Roll: \${result.roll}\` : ''} {result.timestamp && \` • \${new Date(result.timestamp).toLocaleString()}\`}</p>
                         
                         <div className="flex justify-center gap-4 mb-8">
@@ -678,14 +606,12 @@ function getHtml() {
                         </div>
 
                         <div className="space-y-4">
-                            {JSON.parse(result.details || '[]').map((d,i)=>(
-                                // FIX: Removed comment to fix JSX syntax error
+                            {details.map((d,i)=>(
                                 <div key={i} className={\`p-4 rounded-2xl border \${d.isCorrect?'bg-green-50/50 border-green-200':'bg-red-50/50 border-red-200'}\`}>
                                     <div className="font-bold text-gray-800 mb-2">Q{i+1}: {d.qText}</div>
                                     <div className="text-sm space-y-1">
                                         <div className="flex items-start gap-2">
                                             <span className="font-bold min-w-[60px] text-gray-500">Student:</span> 
-                                            {/* FIX: Changed 'q' to 'd' to fix ReferenceError */}
                                             <span className={\`font-bold \${d.isCorrect ? 'text-green-500' : 'text-red-500'}\`}>{d.selectedText}</span>
                                         </div>
                                         {!d.isCorrect && (
@@ -730,7 +656,6 @@ function getHtml() {
                  const res = await apiFetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ username: e.target.username.value, password: e.target.password.value }) }); 
                  const data = await res.json(); 
                  if(data.success) {
-                     // Save token to localStorage inside user object
                      onLogin({ ...data.user, token: data.token }); 
                  }
                  else addToast("Wrong Password!", 'error'); 
@@ -748,7 +673,6 @@ function getHtml() {
             );
         }
 
-        // FIX: Added onRefresh prop and Logout/Refresh buttons to DashboardLayout
         function DashboardLayout({ user, onLogout, title, action, children, activeTab, onTabChange, onRefresh }) {
             const safeUser = user || { name: 'User', role: 'teacher' };
             const initial = (safeUser.name && safeUser.name[0]) ? safeUser.name[0] : 'U';
@@ -758,14 +682,13 @@ function getHtml() {
                 ...(safeUser.role === 'teacher' ? [{ id: 'students', icon: <Icons.Users />, label: 'Students' }] : []),
                 ...(safeUser.role === 'super_admin' ? [
                     { id: 'users', icon: <Icons.Users />, label: 'Users' },
-                    { id: 'exams', icon: <Icons.Exam />, label: 'All Exams' }, // FIX: Added All Exams tab for Admin
+                    { id: 'exams', icon: <Icons.Exam />, label: 'All Exams' }, 
                     { id: 'school', icon: <Icons.School />, label: 'School Data' },
                     { id: 'settings', icon: <Icons.Setting />, label: 'Settings' }
                 ] : []),
             ];
 
             return (
-                // FIX: Changed min-h-screen to min-h-[100dvh] for better mobile support
                 <div className="min-h-[100dvh] pb-24 md:pb-0 md:pl-20 lg:pl-64 bg-[#fff7ed]">
                     <aside className="fixed left-0 top-0 h-screen w-20 lg:w-64 bg-white border-r border-orange-100 hidden md:flex flex-col z-30">
                         <div className="p-6 flex items-center gap-3">
@@ -774,7 +697,6 @@ function getHtml() {
                         </div>
                         <nav className="flex-1 px-4 space-y-2 mt-4">
                             {tabs.map(t => (
-                                // FIX: Escaped backticks in className
                                 <button key={t.id} onClick={() => onTabChange(t.id)} className={\`w-full flex items-center gap-4 p-3 rounded-2xl transition-all btn-bounce \${activeTab === t.id ? 'bg-orange-100 text-orange-600 shadow-sm' : 'text-gray-400 hover:bg-gray-50'}\`}>
                                     {t.icon}
                                     <span className="hidden lg:block font-bold text-sm">{t.label}</span>
@@ -794,19 +716,15 @@ function getHtml() {
                         </div>
                     </aside>
                     
-                    {/* Mobile Header */}
                     <header className="md:hidden sticky top-0 bg-white/90 backdrop-blur-md border-b border-orange-100 p-4 flex justify-between items-center z-40">
                         <h1 className="text-xl font-bold text-slate-800">{title}</h1>
                         <div className="flex items-center gap-2">
-                            {/* Refresh Button */}
                             {onRefresh && <button onClick={onRefresh} className="bg-gray-100 p-2 rounded-full text-gray-600 hover:bg-gray-200"><Icons.Refresh/></button>}
                             {action}
-                            {/* Logout Button */}
                             <button onClick={onLogout} className="bg-red-50 p-2 rounded-full text-red-500"><Icons.Logout/></button>
                         </div>
                     </header>
 
-                    {/* Desktop Header */}
                     <header className="hidden md:flex sticky top-0 bg-white/90 backdrop-blur-md border-b border-orange-100 px-8 py-4 justify-between items-center z-40">
                         <div className="flex items-center gap-4">
                             <h1 className="text-2xl font-bold text-slate-800">{title}</h1>
@@ -821,7 +739,6 @@ function getHtml() {
 
                     <nav className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-orange-100 flex justify-around p-2 z-50 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
                         {tabs.map(t => (
-                            // FIX: Escaped backticks in className
                             <button key={t.id} onClick={() => onTabChange(t.id)} className={\`flex flex-col items-center p-2 rounded-xl transition w-full \${activeTab === t.id ? 'text-orange-500 bg-orange-50' : 'text-gray-400'}\`}>
                                 {t.icon}
                                 <span className="text-[10px] font-bold mt-1">{t.label}</span>
@@ -882,16 +799,15 @@ function getHtml() {
             const [activeTab, setActiveTab] = useState('users');
             const [userType, setUserType] = useState('teachers'); 
             const [list, setList] = useState([]);
-            const [examList, setExamList] = useState([]); // FIX: State for exams
-            const [viewStatsId, setViewStatsId] = useState(null); // FIX: State for drilling down
+            const [examList, setExamList] = useState([]); 
+            const [viewStatsId, setViewStatsId] = useState(null); 
             const [loading, setLoading] = useState(false);
 
             useEffect(() => {
                 if(activeTab === 'users') fetchList();
-                if(activeTab === 'exams') fetchExams(); // FIX: Fetch exams when tab active
+                if(activeTab === 'exams') fetchExams(); 
             }, [activeTab, userType]);
 
-            // Pass fetchList as refresh handler
             const fetchList = () => {
                 setLoading(true);
                 const endpoint = userType === 'teachers' ? '/api/admin/teachers' : '/api/students/list';
@@ -901,7 +817,6 @@ function getHtml() {
                 }).catch(() => setLoading(false));
             }
 
-            // FIX: Function to fetch all exams
             const fetchExams = () => {
                 setLoading(true);
                 apiFetch('/api/admin/exams').then(r=>r.json()).then(d => {
@@ -911,7 +826,6 @@ function getHtml() {
             }
 
             const deleteUser = async (id, name) => {
-                // FIX: Escaped backticks (\`) and dollar signs (\$) for template literals
                 if(!confirm(\`Delete \${name}?\`)) return;
                 const endpoint = userType === 'teachers' ? '/api/admin/teacher/delete' : '/api/admin/student/delete';
                 await apiFetch(endpoint, { method: 'POST', body: JSON.stringify({id}) });
@@ -923,7 +837,6 @@ function getHtml() {
                 if(!confirm("⚠️ FACTORY RESET: Delete EVERYTHING?")) return;
                 await apiFetch('/api/system/reset', { method: 'POST' });
                 addToast("System Reset");
-                // FIX: Reload page to return to Setup screen
                 setTimeout(() => {
                     localStorage.removeItem('mc_user');
                     window.location.reload();
@@ -937,7 +850,6 @@ function getHtml() {
                 else addToast("Failed", 'error');
             };
 
-            // FIX: Render ExamStats if an exam is selected
             if (viewStatsId) {
                  return (
                     <DashboardLayout user={user} onLogout={onLogout} title="Exam Analytics" activeTab={activeTab} onTabChange={(t) => { setViewStatsId(null); setActiveTab(t); }} action={<button onClick={()=>setViewStatsId(null)} className="text-gray-500 font-bold">← Back</button>}>
@@ -951,7 +863,6 @@ function getHtml() {
                     {activeTab === 'users' && (
                         <div className="anim-enter space-y-6">
                             <div className="flex bg-white p-1 rounded-xl w-fit border border-gray-100 shadow-sm">
-                                {/* FIX: Escaped backticks in className below */}
                                 <button onClick={()=>setUserType('teachers')} className={\`px-6 py-2 rounded-lg text-sm font-bold transition \${userType==='teachers'?'bg-indigo-50 text-indigo-600':'text-gray-400 hover:bg-gray-50'}\`}>Teachers</button>
                                 <button onClick={()=>setUserType('students')} className={\`px-6 py-2 rounded-lg text-sm font-bold transition \${userType==='students'?'bg-orange-50 text-orange-600':'text-gray-400 hover:bg-gray-50'}\`}>Students</button>
                             </div>
@@ -967,7 +878,6 @@ function getHtml() {
                                 {loading ? <div className="text-center"><Icons.Loading/></div> : list.map(u => (
                                     <div key={u.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
                                         <div className="flex items-center gap-4">
-                                            {/* FIX: Escaped backticks in className below */}
                                             <div className={\`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white \${userType==='teachers'?'bg-indigo-400':'bg-orange-400'}\`}>{u.name[0]}</div>
                                             <div>
                                                 <div className="font-bold text-slate-800">{u.name}</div>
@@ -982,7 +892,6 @@ function getHtml() {
                         </div>
                     )}
                     
-                    {/* FIX: New Exam List View for Admin */}
                     {activeTab === 'exams' && (
                         <div className="anim-enter space-y-4">
                              {loading && <div className="text-center py-10 text-gray-400 font-bold animate-pulse">Loading Exams...</div>}
@@ -993,7 +902,6 @@ function getHtml() {
                                      <div key={e.id} onClick={()=>setViewStatsId(e.id)} className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition active:scale-95 group">
                                          <div className="flex justify-between items-start mb-2">
                                              <h3 className="font-bold text-lg text-slate-800 line-clamp-1">{e.title}</h3>
-                                             {/* FIX: Escaped backticks in className below */}
                                              <div className={\`w-2 h-2 rounded-full \${e.is_active ? 'bg-green-500' : 'bg-red-300'}\`}></div>
                                          </div>
                                          <div className="text-xs text-gray-500 font-bold mb-4">
@@ -1019,7 +927,7 @@ function getHtml() {
             const [tab, setTab] = useState('exams');
             const [mode, setMode] = useState('list');
             const [exams, setExams] = useState([]);
-            const [loading, setLoading] = useState(false); // Added loading state
+            const [loading, setLoading] = useState(false); 
             const [editId, setEditId] = useState(null);
             const [statId, setStatId] = useState(null);
 
@@ -1027,7 +935,6 @@ function getHtml() {
             
             const loadExams = () => {
                 setLoading(true);
-                // FIX: Escaped backticks for fetching exams to prevent build error
                 apiFetch(\`/api/teacher/exams?teacher_id=\${user.id}\`)
                     .then(r=>r.json())
                     .then(d=>{
@@ -1037,7 +944,6 @@ function getHtml() {
                     .catch(() => setLoading(false));
             };
 
-            // ... (Back button logic) ...
             useEffect(() => {
                 const handlePop = () => {
                     setMode('list'); setEditId(null); setStatId(null);
@@ -1063,7 +969,6 @@ function getHtml() {
 
             if (mode === 'create') return <ExamEditor user={user} examId={editId} onCancel={() => window.history.back()} onFinish={() => { window.history.back(); loadExams(); addToast("Exam Saved!"); }} addToast={addToast} />;
             
-            // FIX: Pass loadExams as onRefresh to DashboardLayout
             if (mode === 'stats') return <DashboardLayout user={user} onLogout={onLogout} title="Analytics" activeTab={tab} onTabChange={handleTabChange} action={<button onClick={()=>window.history.back()} className="text-gray-500 font-bold">← Back</button>} onRefresh={loadExams}><ExamStats examId={statId} /></DashboardLayout>;
 
             return (
@@ -1075,7 +980,6 @@ function getHtml() {
                             {loading && <div className="text-center py-10 text-gray-400 font-bold animate-pulse">Loading Exams...</div>}
                             {!loading && exams.length === 0 && <div className="text-center py-10 text-gray-400 font-bold">No exams created yet. Tap "New Exam" to start!</div>}
                             
-                            {/* FIX: Added 'grid-cols-1' and 'w-full' to ensure visibility on mobile */}
                             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 w-full anim-enter pb-20">
                                 {exams.map(e => (
                                     <div key={e.id} className="bg-white p-5 rounded-3xl shadow-sm border border-orange-100 relative group overflow-hidden">
@@ -1083,7 +987,6 @@ function getHtml() {
                                         <div className="pl-4">
                                             <div className="flex justify-between items-start mb-2"><h3 className="font-bold text-lg text-slate-800 line-clamp-1">{e.title}</h3><button onClick={()=>del(e.id)} className="text-gray-300 hover:text-red-500"><Icons.Trash/></button></div>
                                             <div className="flex justify-between items-center mt-4"><Toggle checked={!!e.is_active} onChange={()=>toggle(e.id, e.is_active)} /><div className="flex gap-2"><button onClick={() => navigateTo('create', e.id)} className="bg-orange-50 text-orange-600 p-2 rounded-xl"><Icons.Edit /></button><button onClick={() => navigateTo('stats', e.id)} className="bg-blue-50 text-blue-600 p-2 rounded-xl"><Icons.Chart /></button></div></div>
-                                            {/* FIX: Escaped backticks in copy link button */}
                                             <button onClick={() => { navigator.clipboard.writeText(\`\${window.location.origin}/?exam=\${e.link_id}\`); addToast("Link Copied!"); }} className="w-full mt-4 bg-gray-50 text-gray-600 text-xs font-bold py-2 rounded-xl hover:bg-gray-100">Copy Link</button>
                                         </div>
                                     </div>
@@ -1132,11 +1035,9 @@ function getHtml() {
                     </div>
                     <div className="grid gap-3">
                         {filtered.map(s=><div key={s.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
-                            {/* FIX: Added Roll Number Display */}
                             <div>
                                 <div className="font-bold">{s.name} <span className="text-gray-400 font-normal text-xs ml-1">(Roll: {s.roll || 'N/A'})</span></div>
                                 <div className="text-xs text-gray-400">{s.school_id}</div>
-                                {/* FIX: Escaped backticks (\`) and dollar signs (\$) below to prevent build error */}
                                 <div className="text-xs font-bold text-indigo-500 mt-1">{s.class ? \`Class \${s.class}\` : 'No Class'} {s.section && \` - \${s.section}\`}</div>
                             </div>
                             <div className="font-bold text-green-500">{Math.round(s.avg_score||0)}%</div>
@@ -1149,8 +1050,8 @@ function getHtml() {
 
         function ExamStats({ examId }) {
             const [data, setData] = useState([]);
-            const [selectedStudent, setSelectedStudent] = useState(null); // Level 2 View
-            const [viewDetail, setViewDetail] = useState(null); // Level 3 View
+            const [selectedStudent, setSelectedStudent] = useState(null); 
+            const [viewDetail, setViewDetail] = useState(null); 
             const [loading, setLoading] = useState(true);
             
             useEffect(() => { 
@@ -1160,7 +1061,6 @@ function getHtml() {
                     .catch(()=>setLoading(false));
             }, [examId]);
 
-            // Group data by student for Level 1 View
             const studentGroups = useMemo(() => {
                 const groups = {};
                 data.forEach(r => {
@@ -1179,12 +1079,10 @@ function getHtml() {
                 return Object.values(groups);
             }, [data]);
 
-            // Level 3: Detailed Result View
             if(viewDetail) return <ResultDetailView result={viewDetail} onClose={()=>setViewDetail(null)} />;
 
             if(loading) return <div className="text-center py-10 text-gray-400 font-bold"><Icons.Loading/> Loading results...</div>;
 
-            // Level 2: Student History List
             if(selectedStudent) {
                 return (
                     <div className="space-y-4 pb-24 anim-enter">
@@ -1215,7 +1113,6 @@ function getHtml() {
                 );
             }
 
-            // Level 1: Unique Student List
             return (
                 <div className="space-y-3 pb-24">
                     {studentGroups.length === 0 && <div className="text-center py-10 text-gray-400">No attempts yet.</div>}
@@ -1268,9 +1165,7 @@ function getHtml() {
                         fd.append('text', q.text);
                         fd.append('choices', JSON.stringify(q.choices));
                         
-                        // Handle Image Logic
                         if (q.image === null && q.image_key === null) {
-                           // No op (Backend will store null if no existing_key sent)
                         } else if (q.image instanceof File) {
                            fd.append('image', q.image);
                         } else if (q.image_key) {
@@ -1285,7 +1180,6 @@ function getHtml() {
             };
 
             const downloadTemplate = () => {
-                // FIX: Updated example to have 4 choices (Standard Format)
                 const example = [
                     { 
                         "text": "What is the capital of France?", 
@@ -1336,43 +1230,278 @@ function getHtml() {
 
             return (
                 <div className="min-h-screen bg-white md:bg-gray-50 flex flex-col">
-                    <div className="sticky top-0 bg-white border-b border-orange-100 p-4 flex justify-between items-center z-40">
-                        <button onClick={onCancel} disabled={submitting} className="text-gray-400 font-bold"><Icons.Back /></button>
-                        <h2 className="font-bold text-lg">{examId ? 'Edit Exam' : 'New Class Exam'}</h2>
-                        <button onClick={publish} disabled={submitting} className="text-orange-600 font-bold text-sm flex items-center gap-2">{submitting && <Icons.Loading />}{submitting ? 'Saving...' : 'Save'}</button>
-                    </div>
+        // 5. STUDENT EXAM APP (With Dropdowns & Validation)
+        function StudentExamApp({ linkId }) {
+            const [mode, setMode] = useState('identify'); 
+            const [student, setStudent] = useState({ name: '', school_id: '', roll: '', class: '', section: '' }); 
+            const [exam, setExam] = useState(null);
+            const [error, setError] = useState(null); // FIX: Added error state
+            const [config, setConfig] = useState({ classes: [], sections: [] });
+            
+            const [qIdx, setQIdx] = useState(0); 
+            const [score, setScore] = useState(0); 
+            const [answers, setAnswers] = useState({});
+            const [resultDetails, setResultDetails] = useState([]);
+            const [examHistory, setExamHistory] = useState([]);
+            const [qTime, setQTime] = useState(0);
+            const [totalTime, setTotalTime] = useState(0);
+            const [showReview, setShowReview] = useState(false); 
 
-                    <div className="flex-1 overflow-y-auto p-4 max-w-2xl mx-auto w-full">
-                        <div className="bg-white md:rounded-3xl md:p-6 md:shadow-sm space-y-6">
-                            <div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Title</label><input value={meta.title} onChange={e => setMeta({ ...meta, title: e.target.value })} className="w-full text-2xl font-bold border-b-2 border-gray-100 focus:border-orange-400 outline-none placeholder-gray-200" placeholder="e.g. Science Quiz" /></div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="bg-gray-50 p-3 rounded-2xl"><label className="text-xs font-bold text-gray-400 uppercase">Timer</label><div className="flex gap-2 mt-1"><select value={meta.timerMode} onChange={e => setMeta({ ...meta, timerMode: e.target.value })} className="bg-transparent font-bold text-sm outline-none"><option value="question">Per Q</option><option value="total">Total</option></select><input type="number" value={meta.timerValue} onChange={e => setMeta({ ...meta, timerValue: e.target.value })} className="w-12 bg-white rounded-lg text-center font-bold text-sm" /></div></div>
-                                <div className="bg-gray-50 p-3 rounded-2xl flex items-center justify-between"><span className="text-xs font-bold text-gray-400 uppercase">Back Nav</span><Toggle checked={meta.allowBack} onChange={v => setMeta({ ...meta, allowBack: v })} /></div>
-                            </div>
-                            <div>
-                                <div className="flex gap-2 mb-4"><label className="flex items-center gap-2 bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-sm font-bold cursor-pointer hover:bg-indigo-100 transition"><Icons.Upload /> Import JSON<input type="file" className="hidden" accept=".json" onChange={handleJsonImport} /></label><button onClick={downloadTemplate} className="flex items-center gap-2 bg-gray-50 text-gray-500 px-4 py-2 rounded-xl text-sm font-bold hover:bg-gray-100 transition"><Icons.Download /> Example</button></div>
-                                <div className="space-y-3 mb-20">{qs.map((q, i) => (<div key={i} onClick={() => setActiveQ(q)} className="bg-white border border-gray-100 p-4 rounded-2xl shadow-sm flex items-center gap-4 active:scale-95 transition cursor-pointer"><span className="font-bold text-orange-400 bg-orange-50 w-8 h-8 flex items-center justify-center rounded-full text-xs">{i + 1}</span>{q.image_key && <Icons.Image />}<div className="flex-1 min-w-0"><p className="font-bold text-sm truncate">{q.text}</p><p className="text-xs text-gray-400">{q.choices.length} options</p></div><button onClick={(e) => { e.stopPropagation(); setQs(qs.filter(x => x !== q)); }} className="text-red-300"><Icons.Trash /></button></div>))}
-                                    <button onClick={() => setActiveQ({ text: '', choices: [{ id: 1, text: '', isCorrect: false }, { id: 2, text: '', isCorrect: false }], tempId: Date.now() })} className="w-full py-4 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 font-bold text-sm hover:border-orange-300 hover:text-orange-500 transition">+ Add Question</button>
+            useEffect(() => { 
+                fetch(`/api/exam/get?link_id=${linkId}`)
+                    .then(r => r.json())
+                    .then(d => {
+                        // FIX: Check for API errors first to prevent crash
+                        if(d.error) {
+                            setError(d.error);
+                            return;
+                        }
+                        if(!d.exam) {
+                            setError("Exam data invalid");
+                            return;
+                        }
+                        if(!d.exam.is_active) {
+                            setError("This exam is currently closed.");
+                            return;
+                        }
+                        
+                        setExam(d);
+                        // FIX: Safe access to config
+                        const safeConfig = d.config || [];
+                        const classes = [...new Set(safeConfig.filter(c=>c.type==='class').map(c=>c.value))];
+                        const sections = [...new Set(safeConfig.filter(c=>c.type==='section').map(c=>c.value))];
+                        setConfig({ classes, sections });
+                    })
+                    .catch(e => setError("Failed to load exam. Please check your connection."));
+            }, [linkId]);
+
+            // Timer Tick
+            useEffect(() => {
+                if(mode !== 'game' || !exam) return;
+                const settings = JSON.parse(exam.exam.settings || '{}');
+                const int = setInterval(() => {
+                    if(settings.timerMode === 'question') {
+                        if(qTime > 0) setQTime(t => t - 1);
+                        else next(); 
+                    } else if(settings.timerMode === 'total') {
+                        if(totalTime > 0) setTotalTime(t => t - 1);
+                        else finish(); 
+                    }
+                }, 1000);
+                return () => clearInterval(int);
+            }, [mode, qTime, totalTime, exam]);
+
+            const next = () => { 
+                if(qIdx < exam.questions.length - 1) { 
+                    setQIdx(qIdx+1); 
+                    const s = JSON.parse(exam.exam.settings || '{}');
+                    if(s.timerMode === 'question') setQTime(s.timerValue || 30);
+                } else finish(); 
+            };
+
+            const finish = async () => {
+                const finalAnswers = {};
+                exam.questions.forEach(q => {
+                    finalAnswers[q.id] = answers[q.id];
+                });
+
+                localStorage.setItem('student_id', student.school_id);
+
+                const res = await fetch('/api/submit', { 
+                    method: 'POST', 
+                    body: JSON.stringify({ 
+                        link_id: linkId, 
+                        student, 
+                        answers: finalAnswers 
+                    }) 
+                });
+                
+                if(!res.ok) return alert("Error Saving Result!");
+                
+                const data = await res.json();
+                
+                setScore(data.score);
+                setResultDetails(data.details);
+                
+                if((data.score/data.total) > 0.6) confetti();
+
+                const histRes = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: student.school_id }) }).then(r => r.json());
+                if (histRes.found) setExamHistory(histRes.history.filter(h => h.exam_id === exam.exam.id));
+                setMode('summary');
+            };
+
+            const startGame = () => {
+                 setMode('game'); 
+                 const settings = JSON.parse(exam.exam.settings || '{}');
+                 if(settings.timerMode==='total') setTotalTime((settings.timerValue||10)*60); 
+                 if(settings.timerMode==='question') setQTime(settings.timerValue||30);
+            };
+
+            // FIX: Render Error State if exists
+            if (error) return (
+                <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center text-slate-800 bg-orange-50">
+                    <div className="bg-white p-8 rounded-3xl shadow-xl max-w-sm w-full">
+                        <div className="text-4xl mb-4">⚠️</div>
+                        <h2 className="text-xl font-bold mb-2">Unable to Start Exam</h2>
+                        <p className="text-gray-500 font-bold mb-6">{error}</p>
+                        <button onClick={() => window.location.reload()} className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold text-sm">Try Again</button>
+                    </div>
+                </div>
+            );
+
+            if(!exam) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400">Loading Exam...</div>;
+            
+            // Safe parsing after error check ensures no crash
+            const settings = JSON.parse(exam.exam.settings || '{}');
+
+            if(mode === 'dashboard') return <StudentPortal onBack={() => setMode('identify')} />;
+
+            if(mode === 'identify') return (
+                <div className="min-h-screen bg-indigo-500 flex items-center justify-center p-6">
+                    <div className="bg-white w-full max-w-sm p-8 rounded-3xl text-center anim-pop shadow-2xl">
+                        <h1 className="text-2xl font-bold mb-4">Join Class</h1>
+                        {/* FIX: Prevent crash if student.school_id is undefined initially */}
+                        <input className="w-full bg-gray-100 p-4 rounded-xl font-bold mb-3 outline-none" placeholder="School ID" value={student.school_id || ''} onChange={e=>setStudent({...student, school_id:e.target.value})} />
+                        <button onClick={async()=>{
+                            if(!student.school_id) return alert("Enter ID");
+                            const r = await fetch('/api/student/identify', {method:'POST', body:JSON.stringify({school_id:student.school_id})}).then(x=>x.json());
+                            if(r.found) { 
+                                if(!r.student.class || !r.student.section) {
+                                    setStudent({...student, ...r.student}); // Keep existing local input, merge DB data
+                                    setMode('update_profile'); 
+                                } else {
+                                    setStudent({...student, ...r.student}); 
+                                    startGame(); 
+                                }
+                            } else setMode('register');
+                        }} className="w-full bg-black text-white p-4 rounded-xl font-bold">Next</button>
+                        
+                        <div className="mt-6 border-t border-gray-100 pt-4">
+                            <p className="text-xs text-gray-400 font-bold mb-2">Want to check results?</p>
+                            <button onClick={() => setMode('dashboard')} className="text-indigo-500 font-bold text-sm hover:underline">Login to Student Dashboard</button>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            if(mode === 'register' || mode === 'update_profile') return (
+                <div className="min-h-screen bg-indigo-500 flex items-center justify-center p-6">
+                    <div className="bg-white w-full max-w-sm p-8 rounded-3xl anim-pop">
+                        <h1 className="text-xl font-bold mb-4">{mode === 'register' ? 'New Student' : 'Complete Profile'}</h1>
+                        <p className="text-xs text-gray-400 mb-4 font-bold">Please fill in your details to continue.</p>
+                        
+                        {(mode === 'register' || !student.name || !student.roll) && (
+                            <>
+                                <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Full Name" value={student.name || ''} onChange={e=>setStudent({...student, name:e.target.value})} />
+                                <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Roll No" value={student.roll || ''} onChange={e=>setStudent({...student, roll:e.target.value})} />
+                            </>
+                        )}
+
+                        <div className="flex gap-2 mb-4">
+                            <select value={student.class || ''} onChange={e=>setStudent({...student, class:e.target.value})} className="w-full bg-gray-100 p-3 rounded-xl font-bold text-sm outline-none">
+                                <option value="">Select Class</option>
+                                {config.classes.map(c=><option key={c} value={c}>{c}</option>)}
+                            </select>
+                            <select value={student.section || ''} onChange={e=>setStudent({...student, section:e.target.value})} className="w-full bg-gray-100 p-3 rounded-xl font-bold text-sm outline-none">
+                                <option value="">Section</option>
+                                {config.sections.map(s=><option key={s} value={s}>{s}</option>)}
+                            </select>
+                        </div>
+                        
+                        <button onClick={()=>{ 
+                            if(!student.class || !student.section || (mode === 'register' && (!student.name || !student.roll))) return alert("Please fill all fields");
+                            startGame(); 
+                        }} className="w-full bg-indigo-600 text-white p-3 rounded-xl font-bold">Start Exam</button>
+                    </div>
+                </div>
+            );
+
+            if(mode === 'game') return (
+                <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-6">
+                    <div className="w-full max-w-md flex justify-between items-center mb-8">
+                        <div className="font-bold text-slate-500 uppercase text-xs tracking-widest">Question {qIdx+1}/{exam.questions.length}</div>
+                        <div className={\`text-xl font-mono font-bold \${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}\`}>
+                            {settings.timerMode === 'question' ? qTime : Math.floor(totalTime/60) + ':' + (totalTime%60).toString().padStart(2,'0')}
+                        </div>
+                    </div>
+                    <div className="w-full max-w-md flex-1 flex flex-col justify-center">
+                        <div className="bg-white text-slate-900 p-6 rounded-3xl mb-6 text-center shadow-2xl">
+                            {exam.questions[qIdx].image_key && <img src={\`/img/\${exam.questions[qIdx].image_key}\`} className="h-40 mx-auto object-contain mb-4" />}
+                            <h2 className="text-xl font-bold">{exam.questions[qIdx].text}</h2>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3">
+                            {JSON.parse(exam.questions[qIdx].choices).map(c => (
+                                <button key={c.id} onClick={()=>{ setAnswers({...answers, [exam.questions[qIdx].id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }} className={\`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 \${answers[exam.questions[qIdx].id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}\`}>
+                                    {c.text}
+                                </button>
+                            ))}
+                        </div>
+                         {settings.timerMode === 'total' && <div className="mt-8 flex justify-end"><button onClick={next} className="px-6 py-2 bg-white text-black rounded-lg font-bold">Next</button></div>}
+                    </div>
+                </div>
+            );
+
+            if(mode === 'summary') return (
+                <div className="min-h-screen bg-slate-900 text-white p-6 overflow-y-auto">
+                    <div className="max-w-2xl mx-auto space-y-6 pb-20">
+                        <div className="bg-slate-800 p-8 rounded-3xl text-center border border-slate-700 shadow-2xl">
+                            <h2 className="text-3xl font-black mb-2 text-white">Exam Complete!</h2>
+                            <div className="grid grid-cols-3 gap-3 my-6">
+                                <div className="bg-green-500/10 p-3 rounded-2xl border border-green-500/20">
+                                    <div className="text-2xl md:text-3xl font-black text-green-400">{score}</div>
+                                    <div className="text-[10px] md:text-xs font-bold uppercase text-green-200/50">Correct</div>
+                                </div>
+                                <div className="bg-red-500/10 p-3 rounded-2xl border border-red-500/20">
+                                    <div className="text-2xl md:text-3xl font-black text-red-400">{exam.questions.length - score}</div>
+                                    <div className="text-[10px] md:text-xs font-bold uppercase text-red-200/50">Wrong</div>
+                                </div>
+                                <div className="bg-blue-500/10 p-3 rounded-2xl border border-blue-500/20">
+                                    <div className="text-2xl md:text-3xl font-black text-blue-400">{Math.round((score/exam.questions.length)*100)}%</div>
+                                    <div className="text-[10px] md:text-xs font-bold uppercase text-blue-200/50">Score</div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                    {activeQ && (
-                        <div className="fixed inset-0 bg-white z-50 flex flex-col anim-enter">
-                            <div className="p-4 border-b flex justify-between items-center bg-gray-50"><button onClick={() => setActiveQ(null)} className="font-bold text-gray-500">Cancel</button><span className="font-bold">Edit Question</span><button onClick={() => saveQ(activeQ)} className="font-bold text-green-600 bg-green-50 px-4 py-1 rounded-lg">Done</button></div>
-                            <div className="flex-1 overflow-y-auto p-6 max-w-2xl mx-auto w-full">
-                                <textarea value={activeQ.text} onChange={e => setActiveQ({ ...activeQ, text: e.target.value })} className="w-full text-xl font-bold outline-none resize-none placeholder-gray-300 mb-6" placeholder="Type question here..." rows="3" autoFocus />
-                                <div className="mb-6"><label className="block w-full"><div className="w-full h-40 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400 cursor-pointer hover:bg-gray-100 relative overflow-hidden">{activeQ.image ? (activeQ.image instanceof File ? <img src={URL.createObjectURL(activeQ.image)} className="h-full w-full object-contain" /> : <div className="text-center"><img src="https://placehold.co/100x100?text=Existing" className="h-20 w-auto opacity-50 mx-auto" /><span className="text-xs font-bold text-green-500 block mt-2">Image Attached</span></div>) : activeQ.image_key ? (<div className="text-center"><img src={\`/img/\${activeQ.image_key}\`} className="h-32 object-contain mx-auto" /></div>) : (<><Icons.Image /><span className="text-xs font-bold mt-2">Add Photo</span></>)}
-                                {activeQ.image instanceof File && (<div className="absolute bottom-0 left-0 w-full bg-black/50 text-white text-xs p-2 text-center backdrop-blur-sm">{activeQ.image.name} ({(activeQ.image.size/1024).toFixed(1)} KB)</div>)}</div><input type="file" className="hidden" accept="image/*" onChange={e => {if(e.target.files[0]) { setActiveQ({ ...activeQ, image: e.target.files[0] }); }}} /></label>{(activeQ.image || activeQ.image_key) && (<button onClick={()=>setActiveQ({...activeQ, image: null, image_key: null})} className="text-red-500 text-xs font-bold mt-2 flex items-center gap-1 justify-center"><Icons.Trash/> Remove Image</button>)}</div>
-                                <div className="space-y-3">{activeQ.choices.map((c, i) => (<div key={c.id} className="flex items-center gap-3"><div onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => ({ ...x, isCorrect: x.id === c.id })) })} className={\`w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition \${c.isCorrect ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300'}\`}>{c.isCorrect && <span className="font-bold text-sm">✓</span>}</div><input value={c.text} onChange={e => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => x.id === c.id ? { ...x, text: e.target.value } : x) })} className="flex-1 bg-gray-50 p-3 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-orange-200" placeholder={\`Option \${i + 1}\`} /><button onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.filter(x => x.id !== c.id) })} className="text-gray-300 px-2">×</button></div>))}<button onClick={() => setActiveQ({ ...activeQ, choices: [...activeQ.choices, { id: Date.now(), text: '', isCorrect: false }] })} className="text-sm font-bold text-blue-500 mt-2 ml-11">+ Add Option</button></div>
-                            </div>
+
+                        <div className="space-y-3">
+                             <button onClick={() => setShowReview(!showReview)} className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl font-bold flex justify-between items-center hover:bg-slate-700 transition">
+                                <span>See Correct Answers</span>
+                                <span className={\`transform transition \${showReview ? 'rotate-180' : ''}\`}>▼</span>
+                            </button>
+                            
+                            <button onClick={() => setMode('dashboard')} className="w-full bg-orange-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-orange-500/20 btn-bounce flex items-center justify-center gap-2">
+                                <Icons.Users /> See Past Results
+                            </button>
                         </div>
-                    )}
+
+                        {showReview && (
+                            <div className="space-y-4 anim-enter">
+                                <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
+                                {resultDetails.map((d, i) => (
+                                    <div key={i} className={\`p-6 rounded-2xl border \${d.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}>
+                                        <div className="font-bold text-lg mb-3">Q{i+1}. {d.qText}</div>
+                                        <div className="space-y-2">
+                                            <div className="flex items-start gap-2">
+                                                <span className="font-bold min-w-[60px] text-gray-500">Student:</span> 
+                                                <span className={\`font-bold \${d.isCorrect ? 'text-green-500' : 'text-red-500'}\`}>{d.selectedText}</span>
+                                            </div>
+                                            {!d.isCorrect && (
+                                                <div className="flex items-start gap-2">
+                                                    <span className="font-bold min-w-[60px] text-gray-500">Correct:</span> 
+                                                    <span className="font-bold text-gray-800">{d.correctText}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {settings.allowRetakes && (<div className="w-full text-center mt-8"><button onClick={() => window.location.reload()} className="text-indigo-400 font-bold hover:text-indigo-300">Retake Exam</button></div>)}
+                    </div>
                 </div>
             );
         }
 
-        // --- APP ROOT ---
         function App() {
             const [status, setStatus] = useState(null);
             const [user, setUser] = useState(null);
@@ -1380,7 +1509,6 @@ function getHtml() {
             const [toasts, setToasts] = useState([]);
             const linkId = new URLSearchParams(window.location.search).get('exam');
 
-            // Routing
             useEffect(() => { 
                 const checkHash = () => { 
                     const h = window.location.hash.slice(1); 
@@ -1393,13 +1521,12 @@ function getHtml() {
                 return () => window.removeEventListener('hashchange', checkHash); 
             }, [user]);
 
-            // Persist User
             useEffect(() => { 
                 try { 
                     const u = localStorage.getItem('mc_user'); 
                     if(u) setUser(JSON.parse(u)); 
                 } catch(e) {} 
-                fetch('/api/system/status').then(r=>r.json()).then(setStatus).catch(e=>setStatus({installed:false, hasAdmin:false})); 
+                apiFetch('/api/system/status').then(r=>r.json()).then(setStatus).catch(e=>setStatus({installed:false, hasAdmin:false})); 
             }, []);
 
             const loginUser = (u) => { setUser(u); localStorage.setItem('mc_user', JSON.stringify(u)); window.location.hash = u.role === 'super_admin' ? 'admin' : 'teacher'; };
@@ -1437,3 +1564,6 @@ function getHtml() {
 </body>
 </html>`;
 }
+
+
+
