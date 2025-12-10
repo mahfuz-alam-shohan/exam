@@ -733,10 +733,11 @@ function getHtml() {
             }
 
             const deleteUser = async (id, name) => {
-                if(!confirm(`Delete ${name}?`)) return;
+                // FIX: Escaped backticks (\`) and dollar signs (\$) for template literals
+                if(!confirm(\`Delete \${name}?\`)) return;
                 const endpoint = userType === 'teachers' ? '/api/admin/teacher/delete' : '/api/admin/student/delete';
                 await fetch(endpoint, { method: 'POST', body: JSON.stringify({id}) });
-                addToast(`${name} Deleted`);
+                addToast(\`\${name} Deleted\`);
                 fetchList();
             };
 
