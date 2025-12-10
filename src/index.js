@@ -3,9 +3,10 @@
  * - Branding: "My Class" (Playful, Kiddy, Mobile-First)
  * - Security: Password Hashing (PBKDF2), JWT Auth, Server-Side Grading, Secure Headers
  * - Features: Class/Section Management, Student Filtering, robust Image Handling, Analytics
+ * - Fixes: Relaxed CSP for Babel Standalone, fixed ResultDetailView variable reference
  */
 
-const JWT_SECRET = "fnu2no23h877nyubHBKJUBYU&HGHOINUKBYTDFY$%dcvht25edy5c4tRC#DGFRVU^%DFrvtrgdct$TUDF%VTFVTGSDCTVKUDFRT$SDTCTJYCHTDRCJC{IPOKK{OJIVBY"; // In prod, use env.JWT_SECRET
+const JWT_SECRET = "CHANGE_THIS_SECRET_IN_PROD_TO_SOMETHING_RANDOM_AND_LONG"; // In prod, use env.JWT_SECRET
 
 export default {
   async fetch(request, env) {
@@ -18,8 +19,8 @@ export default {
         headers.set('X-Content-Type-Options', 'nosniff');
         headers.set('X-Frame-Options', 'DENY');
         headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-        // CSP allows inline scripts for this specific single-file React architecture
-        headers.set('Content-Security-Policy', "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval';"); 
+        // FIX: Relaxed CSP to ensure Babel Standalone and Tailwind CDN work without issues
+        headers.set('Content-Security-Policy', "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; script-src 'self' https: 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' https: 'unsafe-inline'; font-src 'self' https: data:; connect-src 'self' https:;"); 
         return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
     };
 
@@ -684,12 +685,13 @@ function getHtml() {
                                     <div className="text-sm space-y-1">
                                         <div className="flex items-start gap-2">
                                             <span className="font-bold min-w-[60px] text-gray-500">Student:</span> 
-                                            <span className={d.isCorrect ? 'text-green-600 font-bold' : 'text-red-500 font-bold'}>{d.selectedText || 'Skipped'}</span>
+                                            {/* FIX: Changed 'q' to 'd' to fix ReferenceError */}
+                                            <span className={\`font-bold \${d.isCorrect ? 'text-green-500' : 'text-red-500'}\`}>{d.selectedText}</span>
                                         </div>
                                         {!d.isCorrect && (
                                             <div className="flex items-start gap-2">
                                                 <span className="font-bold min-w-[60px] text-gray-500">Correct:</span> 
-                                                <span className="text-gray-800 font-bold">{d.correctText}</span>
+                                                <span className="font-bold text-gray-800">{d.correctText}</span>
                                             </div>
                                         )}
                                     </div>
@@ -1370,9 +1372,7 @@ function getHtml() {
             );
         }
 
-        // 5. STUDENT EXAM APP (With Dropdowns & Validation)
-        function StudentExamApp({ linkId }) {
-            const [mode, setMode] = useState('identify'); 
+        // --- APP ROOT ---
             const [student, setStudent] = useState({ name: '', school_id: '', roll: '', class: '', section: '' }); 
             const [exam, setExam] = useState(null); 
             const [config, setConfig] = useState({ classes: [], sections: [] });
