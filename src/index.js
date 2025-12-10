@@ -1153,8 +1153,8 @@ function getHtml() {
                         <div className="space-y-3">
                              <button onClick={() => setShowReview(!showReview)} className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl font-bold flex justify-between items-center hover:bg-slate-700 transition">
                                 <span>See Correct Answers</span>
-                                {/* FIX: Escaped backticks (\`) and escaped dollar sign (\$) for the template literal below */}
-                                <span className={`transform transition ${showReview ? 'rotate-180' : ''}`}>▼</span>
+                                {/* FIX: Escaped backticks (\`) and escaped dollar sign (\$) for the template literal below to prevent build error */}
+                                <span className={\`transform transition \${showReview ? 'rotate-180' : ''}\`}>▼</span>
                             </button>
                             
                             {/* FIX: Direct switch to Dashboard Mode */}
