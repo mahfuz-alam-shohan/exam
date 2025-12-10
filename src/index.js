@@ -1,18 +1,32 @@
 /**
  * Cloudflare Worker - My Class (SaaS Masterclass)
  * - Branding: "My Class" (Playful, Kiddy, Mobile-First)
+ * - Security: Password Hashing (PBKDF2), JWT Auth, Server-Side Grading, Secure Headers
  * - Features: Class/Section Management, Student Filtering, robust Image Handling, Analytics
- * - Fixes: Syntax errors in AdminView template literals (backticks escaped)
  */
+
+const JWT_SECRET = "CHANGE_THIS_SECRET_IN_PROD_TO_SOMETHING_RANDOM_AND_LONG"; // In prod, use env.JWT_SECRET
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    // --- SECURE HEADERS HELPER ---
+    const addSecureHeaders = (res) => {
+        const headers = new Headers(res.headers);
+        headers.set('X-Content-Type-Options', 'nosniff');
+        headers.set('X-Frame-Options', 'DENY');
+        headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+        // CSP allows inline scripts for this specific single-file React architecture
+        headers.set('Content-Security-Policy', "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval';"); 
+        return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+    };
+
     // --- API ROUTES ---
     if (path.startsWith('/api/')) {
-      return handleApi(request, env, path, url);
+      const response = await handleApi(request, env, path, url);
+      return addSecureHeaders(response);
     }
 
     // --- IMAGE SERVING (R2) ---
@@ -26,20 +40,73 @@ export default {
       const headers = new Headers();
       object.writeHttpMetadata(headers);
       headers.set('etag', object.httpEtag);
+      headers.set('Cache-Control', 'public, max-age=31536000'); // Cache images
 
       return new Response(object.body, { headers });
     }
 
     // --- FRONTEND SERVING ---
-    return new Response(getHtml(), {
+    return addSecureHeaders(new Response(getHtml(), {
       headers: { 'Content-Type': 'text/html' },
-    });
+    }));
   },
 };
+
+// --- SECURITY UTILS ---
+async function hashPassword(password) {
+    const encoder = new TextEncoder();
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const key = await crypto.subtle.importKey('raw', encoder.encode(password), {name: 'PBKDF2'}, false, ['deriveBits', 'deriveKey']);
+    const hash = await crypto.subtle.deriveBits({name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256'}, key, 256);
+    return btoa(String.fromCharCode(...salt)) + ':' + btoa(String.fromCharCode(...new Uint8Array(hash)));
+}
+
+async function verifyPassword(password, stored) {
+    const [saltB64, hashB64] = stored.split(':');
+    const salt = Uint8Array.from(atob(saltB64), c => c.charCodeAt(0));
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey('raw', encoder.encode(password), {name: 'PBKDF2'}, false, ['deriveBits', 'deriveKey']);
+    const hash = await crypto.subtle.deriveBits({name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256'}, key, 256);
+    return btoa(String.fromCharCode(...new Uint8Array(hash))) === hashB64;
+}
+
+async function signJwt(payload) {
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey('raw', encoder.encode(JWT_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+    const body = btoa(JSON.stringify({ ...payload, exp: Date.now() + 86400000 })); // 24h expiry
+    const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(`${header}.${body}`));
+    return `${header}.${body}.${btoa(String.fromCharCode(...new Uint8Array(signature))).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')}`;
+}
+
+async function verifyJwt(request) {
+    const auth = request.headers.get('Authorization');
+    if (!auth || !auth.startsWith('Bearer ')) return null;
+    const token = auth.split(' ')[1];
+    const [header, body, sig] = token.split('.');
+    if (!header || !body || !sig) return null;
+
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey('raw', encoder.encode(JWT_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
+    const valid = await crypto.subtle.verify('HMAC', key, Uint8Array.from(atob(sig.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)), encoder.encode(`${header}.${body}`));
+    
+    if (!valid) return null;
+    const payload = JSON.parse(atob(body));
+    if (Date.now() > payload.exp) return null;
+    return payload;
+}
 
 // --- API LOGIC ---
 async function handleApi(request, env, path, url) {
   const method = request.method;
+
+  // Middleware for Admin/Teacher routes
+  const requireAuth = async (role = 'teacher') => {
+      const user = await verifyJwt(request);
+      if (!user) throw new Error("Unauthorized");
+      if (role === 'super_admin' && user.role !== 'super_admin') throw new Error("Forbidden");
+      return user;
+  };
 
   try {
     // 1. SYSTEM INIT & RESET
@@ -63,7 +130,6 @@ async function handleApi(request, env, path, url) {
           env.DB.prepare("CREATE TABLE IF NOT EXISTS attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER, student_db_id INTEGER, score INTEGER, total INTEGER, details TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(student_db_id) REFERENCES students(id))")
         ]);
         
-        // Manual Migration attempt during init
         try { await env.DB.prepare("ALTER TABLE students ADD COLUMN class TEXT").run(); } catch(e) {}
         try { await env.DB.prepare("ALTER TABLE students ADD COLUMN section TEXT").run(); } catch(e) {}
 
@@ -74,6 +140,8 @@ async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/system/reset' && method === 'POST') {
+        // Only Admin can reset
+        await requireAuth('super_admin'); 
         try {
             await env.DB.batch([
                 env.DB.prepare("DELETE FROM students"),
@@ -100,12 +168,14 @@ async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/config/add' && method === 'POST') {
+        await requireAuth('super_admin');
         const { type, value } = await request.json();
         await env.DB.prepare("INSERT INTO school_config (type, value) VALUES (?, ?)").bind(type, value).run();
         return Response.json({ success: true });
     }
 
     if (path === '/api/config/delete' && method === 'POST') {
+        await requireAuth('super_admin');
         const { id } = await request.json();
         await env.DB.prepare("DELETE FROM school_config WHERE id = ?").bind(id).run();
         return Response.json({ success: true });
@@ -120,25 +190,33 @@ async function handleApi(request, env, path, url) {
       if (count > 0) return Response.json({ error: "Admin already exists" }, { status: 403 });
 
       const { username, password, name } = await request.json();
+      const hashedPassword = await hashPassword(password);
+      
       await env.DB.prepare("INSERT INTO users (username, password, name, role) VALUES (?, ?, ?, 'super_admin')")
-        .bind(username, password, name).run();
+        .bind(username, hashedPassword, name).run();
       return Response.json({ success: true });
     }
 
     if (path === '/api/auth/login' && method === 'POST') {
       const { username, password } = await request.json();
-      const user = await env.DB.prepare("SELECT * FROM users WHERE username = ? AND password = ?")
-        .bind(username, password).first();
+      const user = await env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first();
       
-      if (!user) return Response.json({ error: "Invalid credentials" }, { status: 401 });
-      return Response.json({ success: true, user });
+      if (!user || !(await verifyPassword(password, user.password))) {
+          return Response.json({ error: "Invalid credentials" }, { status: 401 });
+      }
+      
+      // Issue Token
+      const token = await signJwt({ id: user.id, role: user.role, name: user.name });
+      return Response.json({ success: true, user: { ...user, password: '' }, token });
     }
 
     if (path === '/api/admin/teachers' && method === 'POST') {
+      await requireAuth('super_admin');
       const { username, password, name } = await request.json();
+      const hashedPassword = await hashPassword(password);
       try {
         await env.DB.prepare("INSERT INTO users (username, password, name, role) VALUES (?, ?, ?, 'teacher')")
-          .bind(username, password, name).run();
+          .bind(username, hashedPassword, name).run();
         return Response.json({ success: true });
       } catch(e) {
         return Response.json({ error: "Username likely taken" }, { status: 400 });
@@ -146,12 +224,13 @@ async function handleApi(request, env, path, url) {
     }
     
     if (path === '/api/admin/teachers' && method === 'GET') {
+      await requireAuth('super_admin');
       const teachers = await env.DB.prepare("SELECT id, name, username, created_at FROM users WHERE role = 'teacher' ORDER BY created_at DESC").all();
       return Response.json(teachers.results);
     }
 
-    // FIX: Added Endpoint for Admin to see ALL Exams with Teacher Names
     if (path === '/api/admin/exams' && method === 'GET') {
+        await requireAuth('super_admin');
         const exams = await env.DB.prepare(`
             SELECT e.*, u.name as teacher_name 
             FROM exams e 
@@ -162,12 +241,14 @@ async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/admin/teacher/delete' && method === 'POST') {
+        await requireAuth('super_admin');
         const { id } = await request.json();
         await env.DB.prepare("DELETE FROM users WHERE id = ? AND role = 'teacher'").bind(id).run();
         return Response.json({ success: true });
     }
 
     if (path === '/api/admin/student/delete' && method === 'POST') {
+        await requireAuth('super_admin');
         const { id } = await request.json();
         await env.DB.prepare("DELETE FROM students WHERE id = ?").bind(id).run();
         await env.DB.prepare("DELETE FROM attempts WHERE student_db_id = ?").bind(id).run();
@@ -176,7 +257,12 @@ async function handleApi(request, env, path, url) {
 
     // 4. EXAM MANAGEMENT
     if (path === '/api/exam/save' && method === 'POST') {
+      const user = await requireAuth('teacher'); // Admins can act as teachers too if role logic allows, but simpler to enforce teacher
       const { id, title, teacher_id, settings } = await request.json();
+      
+      // Strict Check: Ensure user is modifying their own exam (or is admin)
+      if (user.role !== 'super_admin' && parseInt(teacher_id) !== user.id) return Response.json({error:"Unauthorized"}, {status:403});
+
       let examId = id;
       let link_id = null;
 
@@ -194,31 +280,49 @@ async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/exam/delete' && method === 'POST') {
+        const user = await requireAuth('teacher');
         const { id } = await request.json();
-        await env.DB.batch([
-            env.DB.prepare("DELETE FROM exams WHERE id = ?").bind(id),
-            env.DB.prepare("DELETE FROM questions WHERE exam_id = ?").bind(id),
-            env.DB.prepare("DELETE FROM attempts WHERE exam_id = ?").bind(id)
-        ]);
-        return Response.json({ success: true });
+        
+        // Security check: does exam belong to user?
+        const exam = await env.DB.prepare("SELECT teacher_id FROM exams WHERE id = ?").bind(id).first();
+        if(exam && (user.role === 'super_admin' || exam.teacher_id === user.id)) {
+            await env.DB.batch([
+                env.DB.prepare("DELETE FROM exams WHERE id = ?").bind(id),
+                env.DB.prepare("DELETE FROM questions WHERE exam_id = ?").bind(id),
+                env.DB.prepare("DELETE FROM attempts WHERE exam_id = ?").bind(id)
+            ]);
+            return Response.json({ success: true });
+        }
+        return Response.json({ error: "Unauthorized" }, { status: 403 });
     }
 
     if (path === '/api/exam/toggle' && method === 'POST') {
+        const user = await requireAuth('teacher');
         const { id, is_active } = await request.json();
-        await env.DB.prepare("UPDATE exams SET is_active = ? WHERE id = ?").bind(is_active ? 1 : 0, id).run();
-        return Response.json({ success: true });
+        // Security check ownership
+        const exam = await env.DB.prepare("SELECT teacher_id FROM exams WHERE id = ?").bind(id).first();
+        if(exam && (user.role === 'super_admin' || exam.teacher_id === user.id)) {
+            await env.DB.prepare("UPDATE exams SET is_active = ? WHERE id = ?").bind(is_active ? 1 : 0, id).run();
+            return Response.json({ success: true });
+        }
+        return Response.json({ error: "Unauthorized" }, { status: 403 });
     }
     
     if (path === '/api/question/add' && method === 'POST') {
+      const user = await requireAuth('teacher');
       const formData = await request.formData();
       const exam_id = formData.get('exam_id');
+      
+      // Verify ownership of exam before adding question
+      const exam = await env.DB.prepare("SELECT teacher_id FROM exams WHERE id = ?").bind(exam_id).first();
+      if(!exam || (user.role !== 'super_admin' && exam.teacher_id !== user.id)) return Response.json({error:"Unauthorized"},{status:403});
+
       const text = formData.get('text');
       const choices = formData.get('choices');
       const image = formData.get('image'); 
       const existing_image_key = formData.get('existing_image_key');
 
       let image_key = null;
-      
       if (image && image.size > 0) {
         image_key = crypto.randomUUID();
         await env.BUCKET.put(image_key, image);
@@ -232,7 +336,11 @@ async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/teacher/exams' && method === 'GET') {
+      const user = await requireAuth('teacher');
       const teacherId = url.searchParams.get('teacher_id');
+      // Users can only see their own exams unless super_admin
+      if (user.role !== 'super_admin' && parseInt(teacherId) !== user.id) return Response.json({error: "Unauthorized"}, {status: 403});
+
       try {
           const exams = await env.DB.prepare("SELECT * FROM exams WHERE teacher_id = ? ORDER BY created_at DESC").bind(teacherId).all();
           return Response.json(exams.results);
@@ -242,13 +350,15 @@ async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/teacher/exam-details' && method === 'GET') {
+        await requireAuth('teacher'); // Just need to be logged in
         const examId = url.searchParams.get('id');
         const exam = await env.DB.prepare("SELECT * FROM exams WHERE id = ?").bind(examId).first();
         const questions = await env.DB.prepare("SELECT * FROM questions WHERE exam_id = ?").bind(examId).all();
+        // Don't send isCorrect flags if we wanted to be super secure here too, but this is editor mode, so teacher needs them.
         return Response.json({ exam, questions: questions.results });
     }
 
-    // 5. STUDENT PORTAL
+    // 5. STUDENT PORTAL (Public facing)
     if (path === '/api/student/portal-history' && method === 'POST') {
         const { school_id } = await request.json();
         const student = await env.DB.prepare("SELECT * FROM students WHERE school_id = ?").bind(school_id).first();
@@ -280,20 +390,27 @@ async function handleApi(request, env, path, url) {
         return Response.json({ found: false });
     }
 
-    // 6. EXAM DATA
+    // 6. EXAM DATA (Public facing)
     if (path === '/api/exam/get' && method === 'GET') {
       const link_id = url.searchParams.get('link_id');
       const exam = await env.DB.prepare("SELECT * FROM exams WHERE link_id = ?").bind(link_id).first();
       if(!exam) return Response.json({ error: "Exam not found" }, { status: 404 });
       
       const questions = await env.DB.prepare("SELECT * FROM questions WHERE exam_id = ?").bind(exam.id).all();
+      
+      // SECURITY: Sanitize questions for student (remove isCorrect flag)
+      const sanitizedQuestions = questions.results.map(q => ({
+          ...q,
+          choices: JSON.stringify(JSON.parse(q.choices).map(c => ({ id: c.id, text: c.text }))) // Strip isCorrect
+      }));
+
       let config = [];
       try {
           const c = await env.DB.prepare("SELECT * FROM school_config").all();
           config = c.results;
       } catch(e) {}
       
-      return Response.json({ exam, questions: questions.results, config });
+      return Response.json({ exam, questions: sanitizedQuestions, config });
     }
     
     if (path === '/api/student/check' && method === 'POST') {
@@ -305,23 +422,48 @@ async function handleApi(request, env, path, url) {
         return Response.json({ canTake: !attempt });
     }
 
+    // SECURITY: Server-Side Grading Implementation
     if (path === '/api/submit' && method === 'POST') {
-      const { link_id, student, answers, score, total } = await request.json();
+      const { link_id, student, answers } = await request.json(); // Removed 'score' input
       
       const exam = await env.DB.prepare("SELECT id FROM exams WHERE link_id = ?").bind(link_id).first();
       if(!exam) return Response.json({error: "Invalid Exam"});
 
+      // Calculate Score on Server
+      const questions = await env.DB.prepare("SELECT id, choices, text FROM questions WHERE exam_id = ?").bind(exam.id).all();
+      let serverScore = 0;
+      let total = questions.results.length;
+      let detailedResults = [];
+
+      questions.results.forEach(q => {
+          const studentAnswerId = answers[q.id]; // Access by question ID key
+          const dbChoices = JSON.parse(q.choices);
+          const correctChoice = dbChoices.find(c => c.isCorrect);
+          
+          const isCorrect = correctChoice && studentAnswerId === correctChoice.id;
+          if (isCorrect) serverScore++;
+
+          // Build detail object for storage
+          const studentChoice = dbChoices.find(c => c.id === studentAnswerId);
+          detailedResults.push({
+              qId: q.id,
+              qText: q.text,
+              selectedText: studentChoice ? studentChoice.text : "Skipped",
+              correctText: correctChoice ? correctChoice.text : "Error",
+              isCorrect: isCorrect
+          });
+      });
+
       let studentRecord = await env.DB.prepare("SELECT id FROM students WHERE school_id = ?").bind(student.school_id).first();
       
-      // Update or Insert Student
+      // Upsert Student
       if (!studentRecord) {
-        // Safe Insert (Try/Catch to auto-add columns if missing)
         try {
             const res = await env.DB.prepare("INSERT INTO students (school_id, name, roll, class, section) VALUES (?, ?, ?, ?, ?)")
             .bind(student.school_id, student.name, student.roll, student.class || null, student.section || null).run();
             studentRecord = { id: res.meta.last_row_id };
         } catch (e) {
-            // FIX: If insert fails (likely missing class/section columns), add them and retry
+            // Auto-migration fallback
             try { await env.DB.prepare("ALTER TABLE students ADD COLUMN class TEXT").run(); } catch(err) {}
             try { await env.DB.prepare("ALTER TABLE students ADD COLUMN section TEXT").run(); } catch(err) {}
             
@@ -330,29 +472,26 @@ async function handleApi(request, env, path, url) {
             studentRecord = { id: res.meta.last_row_id };
         }
       } else {
-        // FIX: Update with Self-Healing Logic
         try {
             await env.DB.prepare("UPDATE students SET name = ?, roll = ?, class = ?, section = ? WHERE id = ?")
                 .bind(student.name, student.roll, student.class || null, student.section || null, studentRecord.id).run();
         } catch (e) {
-            // Self-healing: If update fails, columns might be missing. Try adding them.
-            try { await env.DB.prepare("ALTER TABLE students ADD COLUMN class TEXT").run(); } catch(err) {}
-            try { await env.DB.prepare("ALTER TABLE students ADD COLUMN section TEXT").run(); } catch(err) {}
-            
-            // Retry Update
+             // Update fallback
              await env.DB.prepare("UPDATE students SET name = ?, roll = ?, class = ?, section = ? WHERE id = ?")
                 .bind(student.name, student.roll, student.class || null, student.section || null, studentRecord.id).run();
         }
       }
 
       await env.DB.prepare("INSERT INTO attempts (exam_id, student_db_id, score, total, details) VALUES (?, ?, ?, ?, ?)")
-        .bind(exam.id, studentRecord.id, score, total, JSON.stringify(answers)).run();
+        .bind(exam.id, studentRecord.id, serverScore, total, JSON.stringify(detailedResults)).run();
 
-      return Response.json({ success: true });
+      // Return calculated results to frontend
+      return Response.json({ success: true, score: serverScore, total, details: detailedResults });
     }
 
     // 7. ANALYTICS
     if (path === '/api/analytics/exam' && method === 'GET') {
+      await requireAuth('teacher');
       const examId = url.searchParams.get('exam_id');
       try {
           const results = await env.DB.prepare(`
@@ -369,6 +508,7 @@ async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/students/list' && method === 'GET') {
+        await requireAuth('teacher');
         try {
             const students = await env.DB.prepare(`
                 SELECT s.*, COUNT(a.id) as exams_count, AVG(CAST(a.score AS FLOAT)/CAST(a.total AS FLOAT))*100 as avg_score 
@@ -384,6 +524,10 @@ async function handleApi(request, env, path, url) {
     }
 
   } catch (err) {
+    // If it's an auth error, return 401, else 500
+    if (err.message === "Unauthorized" || err.message === "Forbidden") {
+        return Response.json({ error: err.message }, { status: 401 });
+    }
     return Response.json({ error: err.message }, { status: 500 });
   }
   return new Response("Not Found", { status: 404 });
@@ -395,7 +539,7 @@ function getHtml() {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>My Class</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -421,6 +565,22 @@ function getHtml() {
 
     <script type="text/babel">
         const { useState, useEffect, useMemo, Component } = React;
+
+        // --- AUTH HELPER ---
+        const apiFetch = async (url, options = {}) => {
+            const user = JSON.parse(localStorage.getItem('mc_user') || '{}');
+            const headers = { 
+                'Content-Type': 'application/json',
+                ...(user.token ? { 'Authorization': 'Bearer ' + user.token } : {}),
+                ...options.headers 
+            };
+            const res = await fetch(url, { ...options, headers });
+            if (res.status === 401) {
+                localStorage.removeItem('mc_user');
+                window.location.reload();
+            }
+            return res;
+        };
 
         // --- ERROR BOUNDARY ---
         class ErrorBoundary extends Component {
@@ -531,8 +691,8 @@ function getHtml() {
         function Setup({ onComplete, addToast }) { 
              const handle = async (e) => { 
                  e.preventDefault(); 
-                 await fetch('/api/system/init', { method: 'POST' }); 
-                 const res = await fetch('/api/auth/setup-admin', { method: 'POST', body: JSON.stringify({ name: e.target.name.value, username: e.target.username.value, password: e.target.password.value }) }); 
+                 await apiFetch('/api/system/init', { method: 'POST' }); 
+                 const res = await apiFetch('/api/auth/setup-admin', { method: 'POST', body: JSON.stringify({ name: e.target.name.value, username: e.target.username.value, password: e.target.password.value }) }); 
                  if(res.ok) onComplete(); 
                  else addToast("Failed", 'error'); 
             };
@@ -552,9 +712,12 @@ function getHtml() {
         function Login({ onLogin, addToast, onBack }) { 
              const handle = async (e) => { 
                  e.preventDefault(); 
-                 const res = await fetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ username: e.target.username.value, password: e.target.password.value }) }); 
+                 const res = await apiFetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ username: e.target.username.value, password: e.target.password.value }) }); 
                  const data = await res.json(); 
-                 if(data.success) onLogin(data.user); 
+                 if(data.success) {
+                     // Save token to localStorage inside user object
+                     onLogin({ ...data.user, token: data.token }); 
+                 }
                  else addToast("Wrong Password!", 'error'); 
             };
              return (
@@ -660,18 +823,18 @@ function getHtml() {
             const [val, setVal] = useState('');
 
             useEffect(() => { load(); }, []);
-            const load = () => fetch('/api/config/get').then(r=>r.json()).then(d => { if(Array.isArray(d)) setConfig(d); });
+            const load = () => apiFetch('/api/config/get').then(r=>r.json()).then(d => { if(Array.isArray(d)) setConfig(d); });
 
             const add = async (e) => {
                 e.preventDefault();
-                await fetch('/api/config/add', {method:'POST', body:JSON.stringify({type, value: val})});
+                await apiFetch('/api/config/add', {method:'POST', body:JSON.stringify({type, value: val})});
                 setVal(''); load();
                 addToast(\`Added \${type}\`);
             };
 
             const del = async (id) => {
                 if(!confirm('Delete?')) return;
-                await fetch('/api/config/delete', {method:'POST', body:JSON.stringify({id})});
+                await apiFetch('/api/config/delete', {method:'POST', body:JSON.stringify({id})});
                 load();
             };
 
@@ -717,7 +880,7 @@ function getHtml() {
             const fetchList = () => {
                 setLoading(true);
                 const endpoint = userType === 'teachers' ? '/api/admin/teachers' : '/api/students/list';
-                fetch(endpoint).then(r=>r.json()).then(d => {
+                apiFetch(endpoint).then(r=>r.json()).then(d => {
                     setList(Array.isArray(d) ? d : []);
                     setLoading(false);
                 }).catch(() => setLoading(false));
@@ -726,7 +889,7 @@ function getHtml() {
             // FIX: Function to fetch all exams
             const fetchExams = () => {
                 setLoading(true);
-                fetch('/api/admin/exams').then(r=>r.json()).then(d => {
+                apiFetch('/api/admin/exams').then(r=>r.json()).then(d => {
                     setExamList(Array.isArray(d) ? d : []);
                     setLoading(false);
                 }).catch(() => setLoading(false));
@@ -736,20 +899,20 @@ function getHtml() {
                 // FIX: Escaped backticks (\`) and dollar signs (\$) for template literals
                 if(!confirm(\`Delete \${name}?\`)) return;
                 const endpoint = userType === 'teachers' ? '/api/admin/teacher/delete' : '/api/admin/student/delete';
-                await fetch(endpoint, { method: 'POST', body: JSON.stringify({id}) });
+                await apiFetch(endpoint, { method: 'POST', body: JSON.stringify({id}) });
                 addToast(\`\${name} Deleted\`);
                 fetchList();
             };
 
             const handleReset = async () => {
                 if(!confirm("⚠️ FACTORY RESET: Delete EVERYTHING?")) return;
-                await fetch('/api/system/reset', { method: 'POST' });
+                await apiFetch('/api/system/reset', { method: 'POST' });
                 addToast("System Reset");
             };
 
             const addTeacher = async (e) => {
                 e.preventDefault();
-                const res = await fetch('/api/admin/teachers', { method: 'POST', body: JSON.stringify({ name: e.target.name.value, username: e.target.username.value, password: e.target.password.value }) });
+                const res = await apiFetch('/api/admin/teachers', { method: 'POST', body: JSON.stringify({ name: e.target.name.value, username: e.target.username.value, password: e.target.password.value }) });
                 if(res.ok) { addToast("Teacher Added"); e.target.reset(); fetchList(); }
                 else addToast("Failed", 'error');
             };
@@ -845,7 +1008,7 @@ function getHtml() {
             const loadExams = () => {
                 setLoading(true);
                 // FIX: Escaped backticks for fetching exams to prevent build error
-                fetch(\`/api/teacher/exams?teacher_id=\${user.id}\`)
+                apiFetch(\`/api/teacher/exams?teacher_id=\${user.id}\`)
                     .then(r=>r.json())
                     .then(d=>{
                         setExams(Array.isArray(d)?d:[]);
@@ -875,8 +1038,8 @@ function getHtml() {
                 if(mode !== 'list') setMode('list');
             };
 
-            const toggle = async (id, isActive) => { await fetch('/api/exam/toggle', {method:'POST', body:JSON.stringify({id, is_active:!isActive})}); loadExams(); };
-            const del = async (id) => { if(!confirm("Delete?")) return; await fetch('/api/exam/delete', {method:'POST', body:JSON.stringify({id})}); loadExams(); };
+            const toggle = async (id, isActive) => { await apiFetch('/api/exam/toggle', {method:'POST', body:JSON.stringify({id, is_active:!isActive})}); loadExams(); };
+            const del = async (id) => { if(!confirm("Delete?")) return; await apiFetch('/api/exam/delete', {method:'POST', body:JSON.stringify({id})}); loadExams(); };
 
             if (mode === 'create') return <ExamEditor user={user} examId={editId} onCancel={() => window.history.back()} onFinish={() => { window.history.back(); loadExams(); addToast("Exam Saved!"); }} addToast={addToast} />;
             
@@ -921,8 +1084,8 @@ function getHtml() {
             const [search, setSearch] = useState('');
 
             useEffect(() => { 
-                fetch('/api/students/list').then(r=>r.json()).then(d=>setList(Array.isArray(d)?d:[]));
-                fetch('/api/config/get').then(r=>r.json()).then(d => { if(Array.isArray(d)) setConfig(d); });
+                apiFetch('/api/students/list').then(r=>r.json()).then(d=>setList(Array.isArray(d)?d:[]));
+                apiFetch('/api/config/get').then(r=>r.json()).then(d => { if(Array.isArray(d)) setConfig(d); });
             }, []);
 
             const classes = Array.isArray(config) ? [...new Set(config.filter(c=>c.type==='class').map(c=>c.value))] : [];
@@ -971,7 +1134,7 @@ function getHtml() {
             const [loading, setLoading] = useState(true);
             
             useEffect(() => { 
-                fetch(\`/api/analytics/exam?exam_id=\${examId}\`)
+                apiFetch(\`/api/analytics/exam?exam_id=\${examId}\`)
                     .then(r=>r.json())
                     .then(d=>{ setData(Array.isArray(d)?d:[]); setLoading(false); })
                     .catch(()=>setLoading(false));
@@ -1056,7 +1219,7 @@ function getHtml() {
             const [submitting, setSubmitting] = useState(false);
 
             useEffect(() => {
-                if (examId) fetch(\`/api/teacher/exam-details?id=\${examId}\`).then(r => r.json()).then(data => {
+                if (examId) apiFetch(\`/api/teacher/exam-details?id=\${examId}\`).then(r => r.json()).then(data => {
                     setMeta({ ...meta, ...JSON.parse(data.exam.settings || '{}'), title: data.exam.title });
                     setQs(data.questions.map(q => ({ ...q, choices: JSON.parse(q.choices) })));
                 });
@@ -1077,7 +1240,7 @@ function getHtml() {
                 if (!meta.title || qs.length === 0) return addToast("Needs title & questions", 'error');
                 setSubmitting(true);
                 try {
-                    const res = await fetch('/api/exam/save', { method: 'POST', body: JSON.stringify({ id: examId, title: meta.title, teacher_id: user.id, settings: meta }) });
+                    const res = await apiFetch('/api/exam/save', { method: 'POST', body: JSON.stringify({ id: examId, title: meta.title, teacher_id: user.id, settings: meta }) });
                     const data = await res.json();
                     for (let q of qs) {
                         const fd = new FormData();
@@ -1094,7 +1257,7 @@ function getHtml() {
                            fd.append('existing_image_key', q.image_key);
                         }
 
-                        await fetch('/api/question/add', { method: 'POST', body: fd });
+                        await apiFetch('/api/question/add', { method: 'POST', body: fd });
                     }
                     onFinish();
                 } catch(e) { addToast("Error Saving", 'error'); } 
@@ -1241,25 +1404,33 @@ function getHtml() {
             };
 
             const finish = async () => {
-                let fs = 0;
-                const det = exam.questions.map(q => { 
-                    const s = answers[q.id]; 
-                    const choices = JSON.parse(q.choices);
-                    const correctChoice = choices.find(x => x.isCorrect);
-                    const c = correctChoice?.id; 
-                    const isCorrect = s === c;
-                    if(isCorrect) fs++; 
-                    return { qId: q.id, qText: q.text, choices: choices, selected: s, selectedText: choices.find(x => x.id === s)?.text || "Skipped", correct: c, correctText: correctChoice?.text, isCorrect }; 
+                const finalAnswers = {};
+                exam.questions.forEach(q => {
+                    finalAnswers[q.id] = answers[q.id];
                 });
-                
-                setScore(fs); setResultDetails(det);
-                if((fs/exam.questions.length) > 0.6) confetti();
-                
+
                 // Save ID specifically for the dashboard redirection
                 localStorage.setItem('student_id', student.school_id);
 
-                const res = await fetch('/api/submit', { method: 'POST', body: JSON.stringify({ link_id: linkId, student, score: fs, total: exam.questions.length, answers: det }) });
+                // Security: Send raw answers to backend, let backend calculate score
+                const res = await fetch('/api/submit', { 
+                    method: 'POST', 
+                    body: JSON.stringify({ 
+                        link_id: linkId, 
+                        student, 
+                        answers: finalAnswers // Only sending IDs of selected choices
+                    }) 
+                });
+                
                 if(!res.ok) return alert("Error Saving Result! Please try again or contact teacher.");
+                
+                const data = await res.json();
+                
+                // Update local state with server results
+                setScore(data.score);
+                setResultDetails(data.details);
+                
+                if((data.score/data.total) > 0.6) confetti();
 
                 const histRes = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: student.school_id }) }).then(r => r.json());
                 if (histRes.found) setExamHistory(histRes.history.filter(h => h.exam_id === exam.exam.id));
@@ -1406,7 +1577,18 @@ function getHtml() {
                         {showReview && (
                             <div className="space-y-4 anim-enter">
                                 <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
-                                {resultDetails.map((q, i) => (<div key={i} className={\`p-6 rounded-2xl border \${q.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}><div className="font-bold text-lg mb-3">Q{i+1}. {q.qText}</div><div className="space-y-2">{q.choices.map(c => { const isSelected = c.id === q.selected; const isCorrectChoice = c.id === q.correct; let style = "bg-slate-800 border-slate-700 text-slate-400"; if (isCorrectChoice) style = "bg-green-500 text-white border-green-500"; else if (isSelected && !q.isCorrect) style = "bg-red-500 text-white border-red-500"; return (<div key={c.id} className={\`p-3 rounded-xl border flex justify-between items-center \${style}\`}> <span className="font-bold">{c.text}</span> {isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">You</span>} {isCorrectChoice && !isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">Correct</span>} </div>); })}</div></div>))}
+                                {resultDetails.map((q, i) => (<div key={i} className={\`p-6 rounded-2xl border \${q.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}><div className="font-bold text-lg mb-3">Q{i+1}. {q.qText}</div><div className="space-y-2">
+                                    <div className="flex items-start gap-2">
+                                        <span className="font-bold min-w-[60px] text-gray-500">Student:</span> 
+                                        <span className={\`font-bold \${q.isCorrect ? 'text-green-500' : 'text-red-500'}\`}>{q.selectedText}</span>
+                                    </div>
+                                    {!q.isCorrect && (
+                                        <div className="flex items-start gap-2">
+                                            <span className="font-bold min-w-[60px] text-gray-500">Correct:</span> 
+                                            <span className="font-bold text-gray-800">{q.correctText}</span>
+                                        </div>
+                                    )}
+                                </div></div>))}
                             </div>
                         )}
 
@@ -1539,65 +1721,6 @@ function getHtml() {
                         </div>
                     </div>
                 </div>
-            );
-        }
-
-        // --- APP ROOT ---
-        function App() {
-            const [status, setStatus] = useState(null);
-            const [user, setUser] = useState(null);
-            const [route, setRoute] = useState('landing');
-            const [toasts, setToasts] = useState([]);
-            const linkId = new URLSearchParams(window.location.search).get('exam');
-
-            // Routing
-            useEffect(() => { 
-                const checkHash = () => { 
-                    const h = window.location.hash.slice(1); 
-                    if(h === 'teacher' && user) setRoute('teacher'); 
-                    else if(h === 'student') setRoute('student'); 
-                    else if(h === 'admin' && user?.role === 'super_admin') setRoute('admin'); 
-                    else if(!linkId) setRoute('landing'); 
-                }; 
-                window.addEventListener('hashchange', checkHash); 
-                return () => window.removeEventListener('hashchange', checkHash); 
-            }, [user]);
-
-            // Persist User
-            useEffect(() => { 
-                try { 
-                    const u = localStorage.getItem('mc_user'); 
-                    if(u) setUser(JSON.parse(u)); 
-                } catch(e) {} 
-                fetch('/api/system/status').then(r=>r.json()).then(setStatus).catch(e=>setStatus({installed:false, hasAdmin:false})); 
-            }, []);
-
-            const loginUser = (u) => { setUser(u); localStorage.setItem('mc_user', JSON.stringify(u)); window.location.hash = u.role === 'super_admin' ? 'admin' : 'teacher'; };
-            const logoutUser = () => { setUser(null); localStorage.removeItem('mc_user'); window.location.hash = ''; setRoute('landing'); };
-            const addToast = (msg, type='success') => { const id = Date.now(); setToasts(p => [...p, {id, msg, type}]); setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000); };
-
-            if(linkId) return <ErrorBoundary><StudentExamApp linkId={linkId} /></ErrorBoundary>;
-            if(!status) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400 animate-pulse">Loading My Class...</div>;
-            if(!status.hasAdmin) return <ErrorBoundary><><Setup onComplete={() => setStatus({hasAdmin:true})} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
-            if(route === 'student') return <ErrorBoundary><StudentPortal onBack={()=>window.location.hash=''} /></ErrorBoundary>;
-            
-            if(user) { 
-                if(user.role === 'super_admin') return <ErrorBoundary><><AdminView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>; 
-                return <ErrorBoundary><><TeacherView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>; 
-            }
-            
-            if(route === 'login') return <ErrorBoundary><><Login onLogin={loginUser} addToast={addToast} onBack={()=>setRoute('landing')} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
-            
-            return ( 
-                <div className="min-h-screen bg-orange-50 flex flex-col items-center justify-center p-6 text-center"> 
-                    <div className="w-24 h-24 bg-white rounded-[30px] shadow-xl flex items-center justify-center text-orange-500 mb-6 anim-pop"><Icons.Logo /></div> 
-                    <h1 className="text-4xl font-black text-slate-800 mb-2">My Class</h1> 
-                    <p className="text-gray-500 font-bold mb-10">Fun Learning & Testing Platform</p> 
-                    <div className="w-full max-w-xs space-y-4"> 
-                        <button onClick={()=>{window.location.hash='student'; setRoute('student')}} className="w-full bg-indigo-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-indigo-200 btn-bounce">Student Hub</button> 
-                        <button onClick={()=>setRoute('login')} className="w-full bg-white text-slate-700 p-4 rounded-2xl font-bold shadow-sm border border-gray-100 btn-bounce">Teacher Login</button> 
-                    </div> 
-                </div> 
             );
         }
 
