@@ -2,7 +2,7 @@
  * Cloudflare Worker - My Class (SaaS Masterclass)
  * - Branding: "My Class" (Playful, Kiddy, Mobile-First)
  * - Features: Class/Section Management, Student Filtering, robust Image Handling, Analytics
- * - Fixes: Syntax errors in TeacherView template literals (backticks escaped)
+ * - Fixes: Syntax errors in ResultDetailView template literals (backticks escaped)
  */
 
 export default {
@@ -484,7 +484,8 @@ function getHtml() {
                     </div>
                     <div className="p-4 max-w-2xl mx-auto pb-20">
                         <h3 className="font-bold text-2xl mb-1 text-center">{result.name}</h3>
-                        <p className="text-center text-gray-400 mb-6 font-bold">{result.roll ? `Roll: ${result.roll}` : ''} {result.timestamp && ` • ${new Date(result.timestamp).toLocaleString()}`}</p>
+                        {/* FIX: Escaped backticks in logic display */}
+                        <p className="text-center text-gray-400 mb-6 font-bold">{result.roll ? \`Roll: \${result.roll}\` : ''} {result.timestamp && \` • \${new Date(result.timestamp).toLocaleString()}\`}</p>
                         
                         <div className="flex justify-center gap-4 mb-8">
                             <div className="bg-green-50 text-green-600 px-4 py-2 rounded-xl font-bold border border-green-100">Score: {result.score}/{result.total}</div>
@@ -494,7 +495,7 @@ function getHtml() {
                         <div className="space-y-4">
                             {JSON.parse(result.details || '[]').map((d,i)=>(
                                 // FIX: Escaped backticks in className
-                                <div key={i} className={`p-4 rounded-2xl border ${d.isCorrect?'bg-green-50/50 border-green-200':'bg-red-50/50 border-red-200'}`}>
+                                <div key={i} className={\`p-4 rounded-2xl border \${d.isCorrect?'bg-green-50/50 border-green-200':'bg-red-50/50 border-red-200'}\`}>
                                     <div className="font-bold text-gray-800 mb-2">Q{i+1}: {d.qText}</div>
                                     <div className="text-sm space-y-1">
                                         <div className="flex items-start gap-2">
@@ -906,7 +907,7 @@ function getHtml() {
             const [loading, setLoading] = useState(true);
             
             useEffect(() => { 
-                fetch(`/api/analytics/exam?exam_id=${examId}`)
+                fetch(\`/api/analytics/exam?exam_id=\${examId}\`)
                     .then(r=>r.json())
                     .then(d=>{ setData(Array.isArray(d)?d:[]); setLoading(false); })
                     .catch(()=>setLoading(false));
@@ -957,7 +958,7 @@ function getHtml() {
                                             <div className="text-xs text-gray-400">Score: {r.score}/{r.total}</div>
                                         </div>
                                     </div>
-                                    <div className={`px-3 py-1 rounded-lg font-bold text-sm ${ (r.score/r.total) >= 0.6 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600' }`}>
+                                    <div className={\`px-3 py-1 rounded-lg font-bold text-sm \${ (r.score/r.total) >= 0.6 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600' }\`}>
                                         {Math.round((r.score/r.total)*100)}%
                                     </div>
                                 </div>
@@ -975,7 +976,7 @@ function getHtml() {
                         <div key={group.id} onClick={()=>setSelectedStudent(group)} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center cursor-pointer active:scale-95 transition hover:shadow-sm">
                             <div>
                                 <div className="font-bold text-slate-800">{group.name} {group.roll && <span className="text-gray-400 font-normal text-xs ml-1">(Roll: {group.roll})</span>}</div>
-                                <div className="text-xs text-gray-500 mt-1">{group.class && `Class ${group.class}`} {group.section && `- ${group.section}`} • <span className="text-indigo-500 font-bold">{group.attempts.length} Tries</span></div>
+                                <div className="text-xs text-gray-500 mt-1">{group.class && \`Class \${group.class}\`} {group.section && \`- \${group.section}\`} • <span className="text-indigo-500 font-bold">{group.attempts.length} Tries</span></div>
                             </div>
                             <Icons.Back className="rotate-180 w-5 h-5 text-gray-300" />
                         </div>
@@ -1418,7 +1419,7 @@ function getHtml() {
                                             <h4 className="font-bold text-slate-800 text-sm">Attempt #{selectedExam.attempts.length - i}</h4>
                                             <p className="text-xs text-gray-400 font-bold">{new Date(h.timestamp).toLocaleString()}</p>
                                         </div>
-                                        <div className={`text-lg font-black ${ (h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400' }`}>{h.score}/{h.total}</div>
+                                        <div className={\`text-lg font-black \${ (h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400' }\`}>{h.score}/{h.total}</div>
                                     </div>
                                 ))}
                             </div>
