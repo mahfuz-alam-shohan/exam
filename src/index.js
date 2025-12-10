@@ -1416,7 +1416,7 @@ function getHtml() {
 
             useEffect(() => { 
                 // FIX: Escaped backticks for fetching exams to prevent build error
-                fetch(`/api/exam/get?link_id=${linkId}`).then(r=>r.json()).then(d => {
+                fetch(\`/api/exam/get?link_id=\${linkId}\`).then(r=>r.json()).then(d => {
                     if(!d.exam?.is_active) return alert("Exam Closed");
                     setExam(d);
                     const classes = [...new Set(d.config.filter(c=>c.type==='class').map(c=>c.value))];
@@ -1598,13 +1598,15 @@ function getHtml() {
                     <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-6">
                         <div className="w-full max-w-md flex justify-between items-center mb-8">
                             <div className="font-bold text-slate-500 uppercase text-xs tracking-widest">Question {qIdx+1}/{exam.questions.length}</div>
-                            <div className={`text-xl font-mono font-bold ${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}`}>
+                            {/* FIX: Escaped backticks in className */}
+                            <div className={\`text-xl font-mono font-bold \${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}\`}>
                                 {settings.timerMode === 'question' ? qTime : Math.floor(totalTime/60) + ':' + (totalTime%60).toString().padStart(2,'0')}
                             </div>
                         </div>
                         <div className="w-full max-w-md flex-1 flex flex-col justify-center">
                             <div className="bg-white text-slate-900 p-6 rounded-3xl mb-6 text-center shadow-2xl">
-                                {currentQuestion.image_key && <img src={`/img/${currentQuestion.image_key}`} className="h-40 mx-auto object-contain mb-4" />}
+                                {/* FIX: Escaped backticks in src */}
+                                {currentQuestion.image_key && <img src={\`/img/\${currentQuestion.image_key}\`} className="h-40 mx-auto object-contain mb-4" />}
                                 <h2 className="text-xl font-bold">{currentQuestion.text}</h2>
                             </div>
                             <div className="grid grid-cols-1 gap-3">
@@ -1617,7 +1619,8 @@ function getHtml() {
                                             setAnswers({...answers, [currentQuestion.id]:c.id}); 
                                             if(settings.timerMode==='question') setTimeout(next, 250); 
                                         }} 
-                                        className={`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 ${answers[currentQuestion.id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}`}
+                                        // FIX: Escaped backticks in className
+                                        className={\`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 \${answers[currentQuestion.id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}\`}
                                     >
                                         {c.text}
                                     </button>
