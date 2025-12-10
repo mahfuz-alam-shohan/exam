@@ -2,7 +2,7 @@
  * Cloudflare Worker - My Class (SaaS Masterclass)
  * - Branding: "My Class" (Playful, Kiddy, Mobile-First)
  * - Features: Class/Section Management, Student Filtering, robust Image Handling, Analytics
- * - Fixes: Syntax errors in ResultDetailView template literals (backticks escaped)
+ * - Fixes: Syntax errors in AdminView template literals (backticks escaped)
  */
 
 export default {
@@ -769,8 +769,8 @@ function getHtml() {
                         <div className="anim-enter space-y-6">
                             <div className="flex bg-white p-1 rounded-xl w-fit border border-gray-100 shadow-sm">
                                 {/* FIX: Escaped backticks in className below */}
-                                <button onClick={()=>setUserType('teachers')} className={`px-6 py-2 rounded-lg text-sm font-bold transition ${userType==='teachers'?'bg-indigo-50 text-indigo-600':'text-gray-400 hover:bg-gray-50'}`}>Teachers</button>
-                                <button onClick={()=>setUserType('students')} className={`px-6 py-2 rounded-lg text-sm font-bold transition ${userType==='students'?'bg-orange-50 text-orange-600':'text-gray-400 hover:bg-gray-50'}`}>Students</button>
+                                <button onClick={()=>setUserType('teachers')} className={\`px-6 py-2 rounded-lg text-sm font-bold transition \${userType==='teachers'?'bg-indigo-50 text-indigo-600':'text-gray-400 hover:bg-gray-50'}\`}>Teachers</button>
+                                <button onClick={()=>setUserType('students')} className={\`px-6 py-2 rounded-lg text-sm font-bold transition \${userType==='students'?'bg-orange-50 text-orange-600':'text-gray-400 hover:bg-gray-50'}\`}>Students</button>
                             </div>
                             {userType === 'teachers' && (
                                 <form onSubmit={addTeacher} className="flex flex-col md:flex-row gap-3 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
@@ -785,7 +785,7 @@ function getHtml() {
                                     <div key={u.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
                                         <div className="flex items-center gap-4">
                                             {/* FIX: Escaped backticks in className below */}
-                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${userType==='teachers'?'bg-indigo-400':'bg-orange-400'}`}>{u.name[0]}</div>
+                                            <div className={\`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white \${userType==='teachers'?'bg-indigo-400':'bg-orange-400'}\`}>{u.name[0]}</div>
                                             <div>
                                                 <div className="font-bold text-slate-800">{u.name}</div>
                                                 <div className="text-xs text-gray-400 font-mono">{u.username || u.school_id}</div>
@@ -811,7 +811,7 @@ function getHtml() {
                                          <div className="flex justify-between items-start mb-2">
                                              <h3 className="font-bold text-lg text-slate-800 line-clamp-1">{e.title}</h3>
                                              {/* FIX: Escaped backticks in className below */}
-                                             <div className={`w-2 h-2 rounded-full ${e.is_active ? 'bg-green-500' : 'bg-red-300'}`}></div>
+                                             <div className={\`w-2 h-2 rounded-full \${e.is_active ? 'bg-green-500' : 'bg-red-300'}\`}></div>
                                          </div>
                                          <div className="text-xs text-gray-500 font-bold mb-4">
                                              Created by: <span className="text-indigo-600">{e.teacher_name || 'Unknown Teacher'}</span>
