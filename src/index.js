@@ -2,7 +2,7 @@
  * Cloudflare Worker - My Class (SaaS Masterclass)
  * - Branding: "My Class" (Playful, Kiddy, Mobile-First)
  * - Features: Class/Section Management, Student Filtering, robust Image Handling, Analytics
- * - Fixes: Crash protection for missing tables/null data in StudentList
+ * - Fixes: Auto-schema migration in /api/submit to prevent data loss
  */
 
 export default {
@@ -56,16 +56,14 @@ async function handleApi(request, env, path, url) {
       try {
         await env.DB.batch([
           env.DB.prepare("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT, name TEXT, role TEXT DEFAULT 'teacher', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
-          // Updated students table with class and section
           env.DB.prepare("CREATE TABLE IF NOT EXISTS students (id INTEGER PRIMARY KEY AUTOINCREMENT, school_id TEXT UNIQUE, name TEXT, roll TEXT, class TEXT, section TEXT, extra_info TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
-          // New table for School Configuration (Classes/Sections)
           env.DB.prepare("CREATE TABLE IF NOT EXISTS school_config (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, value TEXT)"), 
           env.DB.prepare("CREATE TABLE IF NOT EXISTS exams (id INTEGER PRIMARY KEY AUTOINCREMENT, link_id TEXT UNIQUE, title TEXT, teacher_id INTEGER, settings TEXT, is_active BOOLEAN DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"),
           env.DB.prepare("CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER, text TEXT, image_key TEXT, choices TEXT)"),
           env.DB.prepare("CREATE TABLE IF NOT EXISTS attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER, student_db_id INTEGER, score INTEGER, total INTEGER, details TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(student_db_id) REFERENCES students(id))")
         ]);
         
-        // Manual Migration: Add columns if they don't exist (for existing databases)
+        // Manual Migration attempt during init
         try { await env.DB.prepare("ALTER TABLE students ADD COLUMN class TEXT").run(); } catch(e) {}
         try { await env.DB.prepare("ALTER TABLE students ADD COLUMN section TEXT").run(); } catch(e) {}
 
@@ -92,7 +90,6 @@ async function handleApi(request, env, path, url) {
 
     // 2. CONFIG (Classes/Sections)
     if (path === '/api/config/get' && method === 'GET') {
-        // Auto-create table if missing to prevent crashes on legacy installs
         try {
             const data = await env.DB.prepare("SELECT * FROM school_config ORDER BY value ASC").all();
             return Response.json(data.results);
@@ -211,12 +208,6 @@ async function handleApi(request, env, path, url) {
 
       let image_key = null;
       
-      // Logic:
-      // 1. If 'image' (file) is present, upload it and use new key.
-      // 2. If no file, check 'existing_image_key'.
-      //    - If 'existing_image_key' is present (string), keep it.
-      //    - If neither is present, it means image was removed or never existed -> image_key remains null.
-      
       if (image && image.size > 0) {
         image_key = crypto.randomUUID();
         await env.BUCKET.put(image_key, image);
@@ -285,8 +276,6 @@ async function handleApi(request, env, path, url) {
       if(!exam) return Response.json({ error: "Exam not found" }, { status: 404 });
       
       const questions = await env.DB.prepare("SELECT * FROM questions WHERE exam_id = ?").bind(exam.id).all();
-      // Fetch school config for dropdowns in Student App
-      // Robust fetch: if table missing, return empty array
       let config = [];
       try {
           const c = await env.DB.prepare("SELECT * FROM school_config").all();
@@ -315,13 +304,34 @@ async function handleApi(request, env, path, url) {
       
       // Update or Insert Student
       if (!studentRecord) {
-        const res = await env.DB.prepare("INSERT INTO students (school_id, name, roll, class, section) VALUES (?, ?, ?, ?, ?)")
-          .bind(student.school_id, student.name, student.roll, student.class || null, student.section || null).run();
-        studentRecord = { id: res.meta.last_row_id };
+        // Safe Insert (Try/Catch to auto-add columns if missing)
+        try {
+            const res = await env.DB.prepare("INSERT INTO students (school_id, name, roll, class, section) VALUES (?, ?, ?, ?, ?)")
+            .bind(student.school_id, student.name, student.roll, student.class || null, student.section || null).run();
+            studentRecord = { id: res.meta.last_row_id };
+        } catch (e) {
+            // FIX: If insert fails (likely missing class/section columns), add them and retry
+            try { await env.DB.prepare("ALTER TABLE students ADD COLUMN class TEXT").run(); } catch(err) {}
+            try { await env.DB.prepare("ALTER TABLE students ADD COLUMN section TEXT").run(); } catch(err) {}
+            
+            const res = await env.DB.prepare("INSERT INTO students (school_id, name, roll, class, section) VALUES (?, ?, ?, ?, ?)")
+            .bind(student.school_id, student.name, student.roll, student.class || null, student.section || null).run();
+            studentRecord = { id: res.meta.last_row_id };
+        }
       } else {
-        // Always update details (important for Class/Section updates)
-        await env.DB.prepare("UPDATE students SET name = ?, roll = ?, class = ?, section = ? WHERE id = ?")
-            .bind(student.name, student.roll, student.class, student.section, studentRecord.id).run();
+        // FIX: Update with Self-Healing Logic
+        try {
+            await env.DB.prepare("UPDATE students SET name = ?, roll = ?, class = ?, section = ? WHERE id = ?")
+                .bind(student.name, student.roll, student.class || null, student.section || null, studentRecord.id).run();
+        } catch (e) {
+            // Self-healing: If update fails, columns might be missing. Try adding them.
+            try { await env.DB.prepare("ALTER TABLE students ADD COLUMN class TEXT").run(); } catch(err) {}
+            try { await env.DB.prepare("ALTER TABLE students ADD COLUMN section TEXT").run(); } catch(err) {}
+            
+            // Retry Update
+             await env.DB.prepare("UPDATE students SET name = ?, roll = ?, class = ?, section = ? WHERE id = ?")
+                .bind(student.name, student.roll, student.class || null, student.section || null, studentRecord.id).run();
+        }
       }
 
       await env.DB.prepare("INSERT INTO attempts (exam_id, student_db_id, score, total, details) VALUES (?, ?, ?, ?, ?)")
@@ -977,7 +987,9 @@ function getHtml() {
                 
                 setScore(fs); setResultDetails(det);
                 if((fs/exam.questions.length) > 0.6) confetti();
-                await fetch('/api/submit', { method: 'POST', body: JSON.stringify({ link_id: linkId, student, score: fs, total: exam.questions.length, answers: det }) });
+                const res = await fetch('/api/submit', { method: 'POST', body: JSON.stringify({ link_id: linkId, student, score: fs, total: exam.questions.length, answers: det }) });
+                if(!res.ok) return alert("Error Saving Result! Please try again or contact teacher.");
+
                 const histRes = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: student.school_id }) }).then(r => r.json());
                 if (histRes.found) setExamHistory(histRes.history.filter(h => h.exam_id === exam.exam.id));
                 setMode('summary');
@@ -1004,10 +1016,10 @@ function getHtml() {
                             if(r.found) { 
                                 // Check if profile incomplete
                                 if(!r.student.class || !r.student.section) {
-                                    setStudent({...r.student, ...student});
+                                    setStudent({...student, ...r.student}); 
                                     setMode('update_profile'); // Force update
                                 } else {
-                                    setStudent({...r.student, ...student}); 
+                                    setStudent({...student, ...r.student}); 
                                     startGame(); 
                                 }
                             } else setMode('register');
@@ -1022,19 +1034,19 @@ function getHtml() {
                         <h1 className="text-xl font-bold mb-4">{mode === 'register' ? 'New Student' : 'Complete Profile'}</h1>
                         <p className="text-xs text-gray-400 mb-4 font-bold">Please fill in your details to continue.</p>
                         
-                        {mode === 'register' && (
+                        {(mode === 'register' || !student.name || !student.roll) && (
                             <>
-                                <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Full Name" value={student.name} onChange={e=>setStudent({...student, name:e.target.value})} />
-                                <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Roll No" value={student.roll} onChange={e=>setStudent({...student, roll:e.target.value})} />
+                                <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Full Name" value={student.name || ''} onChange={e=>setStudent({...student, name:e.target.value})} />
+                                <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Roll No" value={student.roll || ''} onChange={e=>setStudent({...student, roll:e.target.value})} />
                             </>
                         )}
 
                         <div className="flex gap-2 mb-4">
-                            <select value={student.class} onChange={e=>setStudent({...student, class:e.target.value})} className="w-full bg-gray-100 p-3 rounded-xl font-bold text-sm outline-none">
+                            <select value={student.class || ''} onChange={e=>setStudent({...student, class:e.target.value})} className="w-full bg-gray-100 p-3 rounded-xl font-bold text-sm outline-none">
                                 <option value="">Select Class</option>
                                 {config.classes.map(c=><option key={c} value={c}>{c}</option>)}
                             </select>
-                            <select value={student.section} onChange={e=>setStudent({...student, section:e.target.value})} className="w-full bg-gray-100 p-3 rounded-xl font-bold text-sm outline-none">
+                            <select value={student.section || ''} onChange={e=>setStudent({...student, section:e.target.value})} className="w-full bg-gray-100 p-3 rounded-xl font-bold text-sm outline-none">
                                 <option value="">Section</option>
                                 {config.sections.map(s=><option key={s} value={s}>{s}</option>)}
                             </select>
