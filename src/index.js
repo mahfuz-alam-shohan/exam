@@ -484,7 +484,7 @@ function getHtml() {
                     </div>
                     <div className="p-4 max-w-2xl mx-auto pb-20">
                         <h3 className="font-bold text-2xl mb-1 text-center">{result.name}</h3>
-                        <p className="text-center text-gray-400 mb-6 font-bold">{result.roll ? \`Roll: \${result.roll}\` : ''} {result.timestamp && \` • \${new Date(result.timestamp).toLocaleString()}\`}</p>
+                        <p className="text-center text-gray-400 mb-6 font-bold">{result.roll ? `Roll: ${result.roll}` : ''} {result.timestamp && ` • ${new Date(result.timestamp).toLocaleString()}`}</p>
                         
                         <div className="flex justify-center gap-4 mb-8">
                             <div className="bg-green-50 text-green-600 px-4 py-2 rounded-xl font-bold border border-green-100">Score: {result.score}/{result.total}</div>
@@ -494,7 +494,7 @@ function getHtml() {
                         <div className="space-y-4">
                             {JSON.parse(result.details || '[]').map((d,i)=>(
                                 // FIX: Escaped backticks in className
-                                <div key={i} className={\`p-4 rounded-2xl border \${d.isCorrect?'bg-green-50/50 border-green-200':'bg-red-50/50 border-red-200'}\`}>
+                                <div key={i} className={`p-4 rounded-2xl border ${d.isCorrect?'bg-green-50/50 border-green-200':'bg-red-50/50 border-red-200'}`}>
                                     <div className="font-bold text-gray-800 mb-2">Q{i+1}: {d.qText}</div>
                                     <div className="text-sm space-y-1">
                                         <div className="flex items-start gap-2">
@@ -901,38 +901,83 @@ function getHtml() {
 
         function ExamStats({ examId }) {
             const [data, setData] = useState([]);
-            const [viewDetail, setViewDetail] = useState(null);
+            const [selectedStudent, setSelectedStudent] = useState(null); // Level 2 View
+            const [viewDetail, setViewDetail] = useState(null); // Level 3 View
             const [loading, setLoading] = useState(true);
             
             useEffect(() => { 
-                fetch(\`/api/analytics/exam?exam_id=\${examId}\`)
+                fetch(`/api/analytics/exam?exam_id=${examId}`)
                     .then(r=>r.json())
                     .then(d=>{ setData(Array.isArray(d)?d:[]); setLoading(false); })
                     .catch(()=>setLoading(false));
             }, [examId]);
 
-            // FIX: Use shared ResultDetailView
+            // Group data by student for Level 1 View
+            const studentGroups = useMemo(() => {
+                const groups = {};
+                data.forEach(r => {
+                    if (!groups[r.student_db_id]) {
+                        groups[r.student_db_id] = {
+                            id: r.student_db_id,
+                            name: r.name,
+                            roll: r.roll,
+                            class: r.class,
+                            section: r.section,
+                            attempts: []
+                        };
+                    }
+                    groups[r.student_db_id].attempts.push(r);
+                });
+                return Object.values(groups);
+            }, [data]);
+
+            // Level 3: Detailed Result View
             if(viewDetail) return <ResultDetailView result={viewDetail} onClose={()=>setViewDetail(null)} />;
 
             if(loading) return <div className="text-center py-10 text-gray-400 font-bold"><Icons.Loading/> Loading results...</div>;
 
-            // FIX: Removed uniqueResults logic to show ALL attempts separately
+            // Level 2: Student History List
+            if(selectedStudent) {
+                return (
+                    <div className="space-y-4 pb-24 anim-enter">
+                        <button onClick={()=>setSelectedStudent(null)} className="flex items-center gap-2 text-gray-500 font-bold mb-2"><Icons.Back/> Back to All Students</button>
+                        
+                        <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100 mb-4">
+                            <h3 className="font-bold text-lg text-indigo-900">{selectedStudent.name}</h3>
+                            <p className="text-xs text-indigo-600 font-bold">Roll: {selectedStudent.roll || 'N/A'} • {selectedStudent.attempts.length} Attempts</p>
+                        </div>
+
+                        <div className="space-y-3">
+                            {selectedStudent.attempts.map((r, i) => (
+                                <div key={r.id} onClick={()=>setViewDetail(r)} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center cursor-pointer active:scale-95 transition hover:shadow-md">
+                                    <div className="flex items-center gap-3">
+                                        <div className="bg-gray-100 w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs text-gray-500">#{selectedStudent.attempts.length - i}</div>
+                                        <div>
+                                            <div className="font-bold text-slate-800 text-sm">{new Date(r.timestamp).toLocaleString()}</div>
+                                            <div className="text-xs text-gray-400">Score: {r.score}/{r.total}</div>
+                                        </div>
+                                    </div>
+                                    <div className={`px-3 py-1 rounded-lg font-bold text-sm ${ (r.score/r.total) >= 0.6 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600' }`}>
+                                        {Math.round((r.score/r.total)*100)}%
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+            }
+
+            // Level 1: Unique Student List
             return (
                 <div className="space-y-3 pb-24">
-                    {data.length === 0 && <div className="text-center py-10 text-gray-400">No attempts yet.</div>}
-                    {data.map(r=>(
-                        <div key={r.id} onClick={()=>setViewDetail(r)} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center cursor-pointer active:scale-95 transition hover:shadow-sm">
+                    {studentGroups.length === 0 && <div className="text-center py-10 text-gray-400">No attempts yet.</div>}
+                    {studentGroups.map(group=>(
+                        <div key={group.id} onClick={()=>setSelectedStudent(group)} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center cursor-pointer active:scale-95 transition hover:shadow-sm">
                             <div>
-                                <div className="font-bold text-slate-800">{r.name} {r.roll && <span className="text-gray-400 font-normal text-xs ml-1">(Roll: {r.roll})</span>}</div>
-                                <div className="text-xs text-gray-500 mt-1">{r.class && \`Class \${r.class}\`} • {new Date(r.timestamp).toLocaleString()}</div>
+                                <div className="font-bold text-slate-800">{group.name} {group.roll && <span className="text-gray-400 font-normal text-xs ml-1">(Roll: {group.roll})</span>}</div>
+                                <div className="text-xs text-gray-500 mt-1">{group.class && `Class ${group.class}`} {group.section && `- ${group.section}`} • <span className="text-indigo-500 font-bold">{group.attempts.length} Tries</span></div>
                             </div>
-                            <div className="flex items-center gap-3">
-                                {/* FIX: Escaped backticks in className */}
-                                <div className={\`px-3 py-1 rounded-lg font-bold text-sm \${ (r.score/r.total) >= 0.6 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600' }\`}>
-                                    {Math.round((r.score/r.total)*100)}%
-                                </div>
-                                <Icons.Back className="rotate-180 w-4 h-4 text-gray-300" />
-                            </div>
+                            <Icons.Back className="rotate-180 w-5 h-5 text-gray-300" />
                         </div>
                     ))}
                 </div>
@@ -1309,7 +1354,8 @@ function getHtml() {
         function StudentPortal({ onBack }) {
              const [id, setId] = useState('');
              const [data, setData] = useState(null);
-             const [viewDetail, setViewDetail] = useState(null); // FIX: Added state for viewing details
+             const [selectedExam, setSelectedExam] = useState(null); // Level 2 View
+             const [viewDetail, setViewDetail] = useState(null); // Level 3 View
              
              // FIX: Added manual refresh function
              const refreshData = async () => {
@@ -1349,6 +1395,39 @@ function getHtml() {
              // FIX: Show detailed view if selected
              if(viewDetail) return <ResultDetailView result={{...viewDetail, name: data.student.name, roll: data.student.roll}} onClose={()=>setViewDetail(null)} />;
 
+             // FIX: Group history by Exam
+             const examGroups = data ? Object.values(data.history.reduce((acc, curr) => {
+                 if(!acc[curr.exam_id]) acc[curr.exam_id] = { ...curr, attempts: [] };
+                 acc[curr.exam_id].attempts.push(curr);
+                 return acc;
+             }, {})) : [];
+
+             // Level 2: Show Attempts for Selected Exam
+             if(selectedExam) {
+                 return (
+                    <div className="min-h-screen bg-orange-50 pb-safe p-4">
+                        <div className="max-w-lg mx-auto">
+                            <button onClick={()=>setSelectedExam(null)} className="flex items-center gap-2 text-gray-500 font-bold mb-4"><Icons.Back/> Back to Dashboard</button>
+                            <h2 className="text-2xl font-bold text-slate-800 mb-2">{selectedExam.title}</h2>
+                            <p className="text-gray-500 text-sm font-bold mb-6">Your Performance History</p>
+                            
+                            <div className="space-y-3">
+                                {selectedExam.attempts.map((h, i) => (
+                                    <div key={h.id} onClick={()=>setViewDetail(h)} className="bg-white p-5 rounded-2xl shadow-sm border border-orange-50 flex justify-between items-center cursor-pointer active:scale-95 transition">
+                                        <div>
+                                            <h4 className="font-bold text-slate-800 text-sm">Attempt #{selectedExam.attempts.length - i}</h4>
+                                            <p className="text-xs text-gray-400 font-bold">{new Date(h.timestamp).toLocaleString()}</p>
+                                        </div>
+                                        <div className={`text-lg font-black ${ (h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400' }`}>{h.score}/{h.total}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                 );
+             }
+
+             // Level 1: Main Dashboard (Unique Exams)
              return (
                 <div className="min-h-screen bg-orange-50 pb-safe">
                     <div className="bg-orange-500 p-8 pb-16 rounded-b-[40px] text-white shadow-lg relative overflow-hidden">
@@ -1368,8 +1447,8 @@ function getHtml() {
                     <div className="px-6 -mt-10 relative z-20 max-w-lg mx-auto space-y-6">
                         <div className="bg-white p-6 rounded-3xl shadow-lg flex justify-around text-center">
                             <div>
-                                <div className="text-3xl font-black text-slate-800">{data.history.length}</div>
-                                <div className="text-xs font-bold text-gray-400 uppercase">Exams</div>
+                                <div className="text-3xl font-black text-slate-800">{examGroups.length}</div>
+                                <div className="text-xs font-bold text-gray-400 uppercase">Exams Taken</div>
                             </div>
                             <div className="w-px bg-gray-100"></div>
                             <div>
@@ -1379,18 +1458,17 @@ function getHtml() {
                         </div>
                         <div className="space-y-4 pb-10">
                             <div className="flex justify-between items-center px-2">
-                                <h3 className="font-bold text-slate-400 text-xs uppercase">Recent Activities</h3>
+                                <h3 className="font-bold text-slate-400 text-xs uppercase">Your Exams</h3>
                                 <button onClick={refreshData} className="text-orange-500 text-xs font-bold">Refresh</button>
                             </div>
-                            {data.history.map(h => (
-                                // FIX: Made history item clickable to view details
-                                <div key={h.id} onClick={()=>setViewDetail(h)} className="bg-white p-5 rounded-2xl shadow-sm border border-orange-50 flex justify-between items-center cursor-pointer active:scale-95 transition">
+                            {examGroups.map(group => (
+                                // FIX: Click to view history of this exam
+                                <div key={group.exam_id} onClick={()=>setSelectedExam(group)} className="bg-white p-5 rounded-2xl shadow-sm border border-orange-50 flex justify-between items-center cursor-pointer active:scale-95 transition">
                                     <div>
-                                        <h4 className="font-bold text-slate-800">{h.title}</h4>
-                                        <p className="text-xs text-gray-400 font-bold">{new Date(h.timestamp).toLocaleDateString()}</p>
+                                        <h4 className="font-bold text-slate-800">{group.title}</h4>
+                                        <p className="text-xs text-indigo-500 font-bold">{group.attempts.length} Attempts</p>
                                     </div>
-                                    {/* FIX: Escaped backticks in className */}
-                                    <div className={\`text-lg font-black \${ (h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400' }\`}>{h.score}/{h.total}</div>
+                                    <Icons.Back className="rotate-180 text-gray-300 w-5 h-5"/>
                                 </div>
                             ))}
                         </div>
