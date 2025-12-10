@@ -1263,9 +1263,14 @@ function getHtml() {
             const [submitting, setSubmitting] = useState(false);
 
             useEffect(() => {
-                if (examId) apiFetch(\`/api/teacher/exam-details?id=\${examId}\`).then(r => r.json()).then(data => {
+                if (examId) apiFetch(`/api/teacher/exam-details?id=${examId}`).then(r => r.json()).then(data => {
                     setMeta({ ...meta, ...JSON.parse(data.exam.settings || '{}'), title: data.exam.title });
-                    setQs(data.questions.map(q => ({ ...q, choices: JSON.parse(q.choices) })));
+                    // FIX: Assign unique tempId to loaded questions to prevent "update all" bug
+                    setQs(data.questions.map((q, i) => ({ 
+                        ...q, 
+                        choices: JSON.parse(q.choices),
+                        tempId: Date.now() + i 
+                    })));
                 });
             }, [examId]);
 
@@ -1372,7 +1377,7 @@ function getHtml() {
                             </div>
                             <div>
                                 <div className="flex gap-2 mb-4"><label className="flex items-center gap-2 bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-sm font-bold cursor-pointer hover:bg-indigo-100 transition"><Icons.Upload /> Import JSON<input type="file" className="hidden" accept=".json" onChange={handleJsonImport} /></label><button onClick={downloadTemplate} className="flex items-center gap-2 bg-gray-50 text-gray-500 px-4 py-2 rounded-xl text-sm font-bold hover:bg-gray-100 transition"><Icons.Download /> Example</button></div>
-                                <div className="space-y-3 mb-20">{qs.map((q, i) => (<div key={i} onClick={() => setActiveQ(q)} className="bg-white border border-gray-100 p-4 rounded-2xl shadow-sm flex items-center gap-4 active:scale-95 transition cursor-pointer"><span className="font-bold text-orange-400 bg-orange-50 w-8 h-8 flex items-center justify-center rounded-full text-xs">{i + 1}</span>{q.image_key && <Icons.Image />}<div className="flex-1 min-w-0"><p className="font-bold text-sm truncate">{q.text}</p><p className="text-xs text-gray-400">{q.choices.length} options</p></div><button onClick={(e) => { e.stopPropagation(); setQs(qs.filter(x => x !== q)); }} className="text-red-300"><Icons.Trash /></button></div>))}
+                                <div className="space-y-3 mb-20">{qs.map((q, i) => (<div key={i} onClick={() => setActiveQ(q)} className="bg-white border border-gray-100 p-4 rounded-2xl shadow-sm flex items-center gap-4 active:scale-95 transition cursor-pointer"><span className="font-bold text-orange-400 bg-orange-50 w-8 h-8 flex items-center justify-center rounded-full text-xs">{i + 1}</span>{/* FIX: Show icon if existing key OR new file exists */}{(q.image_key || q.image) && <Icons.Image />}<div className="flex-1 min-w-0"><p className="font-bold text-sm truncate">{q.text}</p><p className="text-xs text-gray-400">{q.choices.length} options</p></div><button onClick={(e) => { e.stopPropagation(); setQs(qs.filter(x => x !== q)); }} className="text-red-300"><Icons.Trash /></button></div>))}
                                     <button onClick={() => setActiveQ({ text: '', choices: [{ id: 1, text: '', isCorrect: false }, { id: 2, text: '', isCorrect: false }], tempId: Date.now() })} className="w-full py-4 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 font-bold text-sm hover:border-orange-300 hover:text-orange-500 transition">+ Add Question</button>
                                 </div>
                             </div>
@@ -1408,11 +1413,7 @@ function getHtml() {
             const [examHistory, setExamHistory] = useState([]);
             const [qTime, setQTime] = useState(0);
             const [totalTime, setTotalTime] = useState(0);
-            const [showReview, setShowReview] = useState(false); 
-            
-            // FIX: Added submitting state to prevent double submissions
-            const [submitting, setSubmitting] = useState(false);
-            const [transitioning, setTransitioning] = useState(false);
+            const [showReview, setShowReview] = useState(false); // New state for review toggle
 
             useEffect(() => { 
                 // FIX: Escaped backticks for fetching exams to prevent build error
@@ -1427,7 +1428,7 @@ function getHtml() {
 
             // Timer Tick
             useEffect(() => {
-                if(mode !== 'game' || !exam || submitting) return; // Stop timer if submitting
+                if(mode !== 'game' || !exam) return;
                 const settings = JSON.parse(exam.exam.settings || '{}');
                 const int = setInterval(() => {
                     if(settings.timerMode === 'question') {
@@ -1439,28 +1440,17 @@ function getHtml() {
                     }
                 }, 1000);
                 return () => clearInterval(int);
-            }, [mode, qTime, totalTime, exam, submitting]);
+            }, [mode, qTime, totalTime, exam]);
 
             const next = () => { 
-                if (transitioning || submitting) return; // Prevent double jumping
-                setTransitioning(true);
-
                 if(qIdx < exam.questions.length - 1) { 
-                    setQIdx(idx => idx + 1); 
+                    setQIdx(qIdx+1); 
                     const s = JSON.parse(exam.exam.settings || '{}');
                     if(s.timerMode === 'question') setQTime(s.timerValue || 30);
-                    // Reset transition lock after a small delay to allow render
-                    setTimeout(() => setTransitioning(false), 300);
-                } else {
-                    finish(); 
-                }
+                } else finish(); 
             };
 
             const finish = async () => {
-                // FIX: Guard against double submission
-                if (submitting) return;
-                setSubmitting(true);
-
                 const finalAnswers = {};
                 exam.questions.forEach(q => {
                     finalAnswers[q.id] = answers[q.id];
@@ -1469,37 +1459,28 @@ function getHtml() {
                 localStorage.setItem('student_id', student.school_id);
 
                 // Security: Send raw answers to backend, let backend calculate score
-                try {
-                    const res = await fetch('/api/submit', { 
-                        method: 'POST', 
-                        body: JSON.stringify({ 
-                            link_id: linkId, 
-                            student, 
-                            answers: finalAnswers 
-                        }) 
-                    });
-                    
-                    if(!res.ok) {
-                        alert("Error Saving Result! Please try again or contact teacher.");
-                        setSubmitting(false);
-                        return;
-                    }
-                    
-                    const data = await res.json();
-                    
-                    // Update local state with server results
-                    setScore(data.score);
-                    setResultDetails(data.details);
-                    
-                    if((data.score/data.total) > 0.6) confetti();
+                const res = await fetch('/api/submit', { 
+                    method: 'POST', 
+                    body: JSON.stringify({ 
+                        link_id: linkId, 
+                        student, 
+                        answers: finalAnswers // Only sending IDs of selected choices
+                    }) 
+                });
+                
+                if(!res.ok) return alert("Error Saving Result! Please try again or contact teacher.");
+                
+                const data = await res.json();
+                
+                // Update local state with server results
+                setScore(data.score);
+                setResultDetails(data.details);
+                
+                if((data.score/data.total) > 0.6) confetti();
 
-                    const histRes = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: student.school_id }) }).then(r => r.json());
-                    if (histRes.found) setExamHistory(histRes.history.filter(h => h.exam_id === exam.exam.id));
-                    setMode('summary');
-                } catch(e) {
-                    alert("Network error occurred.");
-                    setSubmitting(false);
-                }
+                const histRes = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: student.school_id }) }).then(r => r.json());
+                if (histRes.found) setExamHistory(histRes.history.filter(h => h.exam_id === exam.exam.id));
+                setMode('summary');
             };
 
             const startGame = () => {
@@ -1598,35 +1579,23 @@ function getHtml() {
                     <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-6">
                         <div className="w-full max-w-md flex justify-between items-center mb-8">
                             <div className="font-bold text-slate-500 uppercase text-xs tracking-widest">Question {qIdx+1}/{exam.questions.length}</div>
-                            {/* FIX: Escaped backticks in className */}
                             <div className={\`text-xl font-mono font-bold \${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}\`}>
                                 {settings.timerMode === 'question' ? qTime : Math.floor(totalTime/60) + ':' + (totalTime%60).toString().padStart(2,'0')}
                             </div>
                         </div>
                         <div className="w-full max-w-md flex-1 flex flex-col justify-center">
                             <div className="bg-white text-slate-900 p-6 rounded-3xl mb-6 text-center shadow-2xl">
-                                {/* FIX: Escaped backticks in src */}
                                 {currentQuestion.image_key && <img src={\`/img/\${currentQuestion.image_key}\`} className="h-40 mx-auto object-contain mb-4" />}
                                 <h2 className="text-xl font-bold">{currentQuestion.text}</h2>
                             </div>
                             <div className="grid grid-cols-1 gap-3">
                                 {JSON.parse(currentQuestion.choices).map(c => (
-                                    <button 
-                                        key={c.id} 
-                                        disabled={transitioning || submitting} // FIX: Disable button while processing
-                                        onClick={()=>{ 
-                                            if(transitioning || submitting) return;
-                                            setAnswers({...answers, [currentQuestion.id]:c.id}); 
-                                            if(settings.timerMode==='question') setTimeout(next, 250); 
-                                        }} 
-                                        // FIX: Escaped backticks in className
-                                        className={\`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 \${answers[currentQuestion.id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}\`}
-                                    >
+                                    <button key={c.id} onClick={()=>{ setAnswers({...answers, [currentQuestion.id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }} className={\`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 \${answers[currentQuestion.id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}\`}>
                                         {c.text}
                                     </button>
                                 ))}
                             </div>
-                            {settings.timerMode === 'total' && <div className="mt-8 flex justify-end"><button onClick={next} disabled={transitioning || submitting} className="px-6 py-2 bg-white text-black rounded-lg font-bold">Next</button></div>}
+                            {settings.timerMode === 'total' && <div className="mt-8 flex justify-end"><button onClick={next} className="px-6 py-2 bg-white text-black rounded-lg font-bold">Next</button></div>}
                         </div>
                     </div>
                 );
