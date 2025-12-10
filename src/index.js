@@ -966,9 +966,10 @@ function getHtml() {
             const [examHistory, setExamHistory] = useState([]);
             const [qTime, setQTime] = useState(0);
             const [totalTime, setTotalTime] = useState(0);
+            const [showReview, setShowReview] = useState(false); // New state for review toggle
 
             useEffect(() => { 
-                fetch(\`/api/exam/get?link_id=\${linkId}\`).then(r=>r.json()).then(d => {
+                fetch(`/api/exam/get?link_id=${linkId}`).then(r=>r.json()).then(d => {
                     if(!d.exam?.is_active) return alert("Exam Closed");
                     setExam(d);
                     const classes = [...new Set(d.config.filter(c=>c.type==='class').map(c=>c.value))];
@@ -1015,6 +1016,10 @@ function getHtml() {
                 
                 setScore(fs); setResultDetails(det);
                 if((fs/exam.questions.length) > 0.6) confetti();
+                
+                // Save ID specifically for the dashboard redirection
+                localStorage.setItem('student_id', student.school_id);
+
                 const res = await fetch('/api/submit', { method: 'POST', body: JSON.stringify({ link_id: linkId, student, score: fs, total: exam.questions.length, answers: det }) });
                 if(!res.ok) return alert("Error Saving Result! Please try again or contact teacher.");
 
@@ -1115,13 +1120,48 @@ function getHtml() {
 
             if(mode === 'summary') return (
                 <div className="min-h-screen bg-slate-900 text-white p-6 overflow-y-auto">
-                    <div className="max-w-2xl mx-auto space-y-8 pb-20">
-                        <div className="bg-slate-800 p-8 rounded-3xl text-center border border-slate-700 shadow-2xl"><h2 className="text-3xl font-black mb-2 text-white">Exam Complete!</h2><div className="text-7xl font-black text-transparent bg-clip-text bg-gradient-to-tr from-green-400 to-blue-500 mb-4">{score} / {exam.questions.length}</div><div className="text-sm font-bold bg-slate-700 inline-block px-4 py-1 rounded-full text-slate-300">{Math.round((score/exam.questions.length)*100)}% Accuracy</div></div>
-                        <div className="space-y-4">
-                            <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
-                            {resultDetails.map((q, i) => (<div key={i} className={\`p-6 rounded-2xl border \${q.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}><div className="font-bold text-lg mb-3">Q{i+1}. {q.qText}</div><div className="space-y-2">{q.choices.map(c => { const isSelected = c.id === q.selected; const isCorrectChoice = c.id === q.correct; let style = "bg-slate-800 border-slate-700 text-slate-400"; if (isCorrectChoice) style = "bg-green-500 text-white border-green-500"; else if (isSelected && !q.isCorrect) style = "bg-red-500 text-white border-red-500"; return (<div key={c.id} className={\`p-3 rounded-xl border flex justify-between items-center \${style}\`}> <span className="font-bold">{c.text}</span> {isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">You</span>} {isCorrectChoice && !isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">Correct</span>} </div>); })}</div></div>))}
+                    <div className="max-w-2xl mx-auto space-y-6 pb-20">
+                        {/* Score Card */}
+                        <div className="bg-slate-800 p-8 rounded-3xl text-center border border-slate-700 shadow-2xl">
+                            <h2 className="text-3xl font-black mb-2 text-white">Exam Complete!</h2>
+                            {/* Stats Grid */}
+                            <div className="grid grid-cols-3 gap-3 my-6">
+                                <div className="bg-green-500/10 p-3 rounded-2xl border border-green-500/20">
+                                    <div className="text-2xl md:text-3xl font-black text-green-400">{score}</div>
+                                    <div className="text-[10px] md:text-xs font-bold uppercase text-green-200/50">Correct</div>
+                                </div>
+                                <div className="bg-red-500/10 p-3 rounded-2xl border border-red-500/20">
+                                    <div className="text-2xl md:text-3xl font-black text-red-400">{exam.questions.length - score}</div>
+                                    <div className="text-[10px] md:text-xs font-bold uppercase text-red-200/50">Wrong</div>
+                                </div>
+                                <div className="bg-blue-500/10 p-3 rounded-2xl border border-blue-500/20">
+                                    <div className="text-2xl md:text-3xl font-black text-blue-400">{Math.round((score/exam.questions.length)*100)}%</div>
+                                    <div className="text-[10px] md:text-xs font-bold uppercase text-blue-200/50">Score</div>
+                                </div>
+                            </div>
                         </div>
-                        {settings.allowRetakes && (<div className="fixed bottom-0 left-0 w-full p-4 bg-slate-900/90 backdrop-blur border-t border-slate-800 text-center"><button onClick={() => window.location.reload()} className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-bold shadow-lg shadow-indigo-500/20 active:scale-95 transition w-full max-w-sm">Retake Exam</button></div>)}
+
+                        {/* Actions */}
+                        <div className="space-y-3">
+                             <button onClick={() => setShowReview(!showReview)} className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl font-bold flex justify-between items-center hover:bg-slate-700 transition">
+                                <span>See Correct Answers</span>
+                                <span className={`transform transition ${showReview ? 'rotate-180' : ''}`}>▼</span>
+                            </button>
+                            
+                            <button onClick={() => window.location.href = window.location.origin + '/#student'} className="w-full bg-orange-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-orange-500/20 btn-bounce flex items-center justify-center gap-2">
+                                <Icons.Users /> See Past Results
+                            </button>
+                        </div>
+
+                        {/* Detailed Review (Collapsible) */}
+                        {showReview && (
+                            <div className="space-y-4 anim-enter">
+                                <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
+                                {resultDetails.map((q, i) => (<div key={i} className={`p-6 rounded-2xl border ${q.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}`}><div className="font-bold text-lg mb-3">Q{i+1}. {q.qText}</div><div className="space-y-2">{q.choices.map(c => { const isSelected = c.id === q.selected; const isCorrectChoice = c.id === q.correct; let style = "bg-slate-800 border-slate-700 text-slate-400"; if (isCorrectChoice) style = "bg-green-500 text-white border-green-500"; else if (isSelected && !q.isCorrect) style = "bg-red-500 text-white border-red-500"; return (<div key={c.id} className={`p-3 rounded-xl border flex justify-between items-center ${style}`}> <span className="font-bold">{c.text}</span> {isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">You</span>} {isCorrectChoice && !isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">Correct</span>} </div>); })}</div></div>))}
+                            </div>
+                        )}
+
+                        {settings.allowRetakes && (<div className="w-full text-center mt-8"><button onClick={() => window.location.reload()} className="text-indigo-400 font-bold hover:text-indigo-300">Retake Exam</button></div>)}
                     </div>
                 </div>
             );
