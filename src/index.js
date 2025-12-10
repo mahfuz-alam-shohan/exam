@@ -514,14 +514,24 @@ function getHtml() {
     <script type="text/babel">
         const { useState, useEffect, useMemo, Component } = React;
 
+        // --- AUTH HELPER ---
         const apiFetch = async (url, options = {}) => {
             const user = JSON.parse(localStorage.getItem('mc_user') || '{}');
+            
+            // FIX: Default to JSON, but allow browser to override for FormData
             const headers = { 
                 'Content-Type': 'application/json',
                 ...(user.token ? { 'Authorization': 'Bearer ' + user.token } : {}),
                 ...options.headers 
             };
+
+            // FIX: If sending files/form-data, remove Content-Type so browser sets boundary correctly
+            if (options.body instanceof FormData) {
+                delete headers['Content-Type'];
+            }
+
             const res = await fetch(url, { ...options, headers });
+            
             if (res.status === 401) {
                 localStorage.removeItem('mc_user');
                 window.location.reload();
@@ -529,6 +539,7 @@ function getHtml() {
             return res;
         };
 
+        // --- ERROR BOUNDARY ---
         class ErrorBoundary extends Component {
             constructor(props) { super(props); this.state = { hasError: false, error: null }; }
             static getDerivedStateFromError(error) { return { hasError: true, error }; }
@@ -1351,6 +1362,10 @@ function getHtml() {
             };
 
             const startGame = () => {
+                 // FIX: Prevent crash if exam has no questions
+                 if (!exam.questions || exam.questions.length === 0) {
+                     return alert("This exam has no questions added yet. Please contact the teacher.");
+                 }
                  setMode('game'); 
                  const settings = JSON.parse(exam.exam.settings || '{}');
                  if(settings.timerMode==='total') setTotalTime((settings.timerValue||10)*60); 
@@ -1360,7 +1375,6 @@ function getHtml() {
             if(!exam) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400">Loading Exam...</div>;
             const settings = JSON.parse(exam.exam.settings || '{}');
 
-            // FIX: Handle Dashboard Mode inside Exam App
             if(mode === 'dashboard') return <StudentPortal onBack={() => setMode('identify')} />;
 
             if(mode === 'identify') return (
@@ -1374,10 +1388,10 @@ function getHtml() {
                             if(r.found) { 
                                 // Check if profile incomplete
                                 if(!r.student.class || !r.student.section) {
-                                    setStudent({...student, ...r.student}); 
+                                    setStudent({...r.student, ...student}); 
                                     setMode('update_profile'); // Force update
                                 } else {
-                                    setStudent({...student, ...r.student}); 
+                                    setStudent({...r.student, ...student}); 
                                     startGame(); 
                                 }
                             } else setMode('register');
@@ -1424,30 +1438,46 @@ function getHtml() {
                 </div>
             );
 
-            if(mode === 'game') return (
-                <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-6">
-                    <div className="w-full max-w-md flex justify-between items-center mb-8">
-                        <div className="font-bold text-slate-500 uppercase text-xs tracking-widest">Question {qIdx+1}/{exam.questions.length}</div>
-                        <div className={\`text-xl font-mono font-bold \${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}\`}>
-                            {settings.timerMode === 'question' ? qTime : Math.floor(totalTime/60) + ':' + (totalTime%60).toString().padStart(2,'0')}
+            if(mode === 'game') {
+                // FIX: Add safety check to ensure question exists before rendering
+                const currentQuestion = exam.questions[qIdx];
+                if (!currentQuestion) {
+                    return (
+                        <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-6 text-center">
+                            <div>
+                                <h1 className="text-xl font-bold text-red-400 mb-2">Error Loading Question</h1>
+                                <p className="text-gray-400 mb-4">The question data seems to be missing or invalid.</p>
+                                <button onClick={() => window.location.reload()} className="bg-white text-slate-900 px-6 py-2 rounded-xl font-bold">Refresh Page</button>
+                            </div>
+                        </div>
+                    );
+                }
+
+                return (
+                    <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-6">
+                        <div className="w-full max-w-md flex justify-between items-center mb-8">
+                            <div className="font-bold text-slate-500 uppercase text-xs tracking-widest">Question {qIdx+1}/{exam.questions.length}</div>
+                            <div className={\`text-xl font-mono font-bold \${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}\`}>
+                                {settings.timerMode === 'question' ? qTime : Math.floor(totalTime/60) + ':' + (totalTime%60).toString().padStart(2,'0')}
+                            </div>
+                        </div>
+                        <div className="w-full max-w-md flex-1 flex flex-col justify-center">
+                            <div className="bg-white text-slate-900 p-6 rounded-3xl mb-6 text-center shadow-2xl">
+                                {currentQuestion.image_key && <img src={\`/img/\${currentQuestion.image_key}\`} className="h-40 mx-auto object-contain mb-4" />}
+                                <h2 className="text-xl font-bold">{currentQuestion.text}</h2>
+                            </div>
+                            <div className="grid grid-cols-1 gap-3">
+                                {JSON.parse(currentQuestion.choices).map(c => (
+                                    <button key={c.id} onClick={()=>{ setAnswers({...answers, [currentQuestion.id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }} className={\`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 \${answers[currentQuestion.id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}\`}>
+                                        {c.text}
+                                    </button>
+                                ))}
+                            </div>
+                            {settings.timerMode === 'total' && <div className="mt-8 flex justify-end"><button onClick={next} className="px-6 py-2 bg-white text-black rounded-lg font-bold">Next</button></div>}
                         </div>
                     </div>
-                    <div className="w-full max-w-md flex-1 flex flex-col justify-center">
-                        <div className="bg-white text-slate-900 p-6 rounded-3xl mb-6 text-center shadow-2xl">
-                            {exam.questions[qIdx].image_key && <img src={\`/img/\${exam.questions[qIdx].image_key}\`} className="h-40 mx-auto object-contain mb-4" />}
-                            <h2 className="text-xl font-bold">{exam.questions[qIdx].text}</h2>
-                        </div>
-                        <div className="grid grid-cols-1 gap-3">
-                            {JSON.parse(exam.questions[qIdx].choices).map(c => (
-                                <button key={c.id} onClick={()=>{ setAnswers({...answers, [exam.questions[qIdx].id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }} className={\`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 \${answers[exam.questions[qIdx].id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}\`}>
-                                    {c.text}
-                                </button>
-                            ))}
-                        </div>
-                         {settings.timerMode === 'total' && <div className="mt-8 flex justify-end"><button onClick={next} className="px-6 py-2 bg-white text-black rounded-lg font-bold">Next</button></div>}
-                    </div>
-                </div>
-            );
+                );
+            }
 
             if(mode === 'summary') return (
                 <div className="min-h-screen bg-slate-900 text-white p-6 overflow-y-auto">
@@ -1565,5 +1595,7 @@ function getHtml() {
 </body>
 </html>`;
 }
+
+
 
 
