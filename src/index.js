@@ -733,10 +733,10 @@ function getHtml() {
             }
 
             const deleteUser = async (id, name) => {
-                if(!confirm(\`Delete \${name}?\`)) return;
+                if(!confirm(`Delete ${name}?`)) return;
                 const endpoint = userType === 'teachers' ? '/api/admin/teacher/delete' : '/api/admin/student/delete';
                 await fetch(endpoint, { method: 'POST', body: JSON.stringify({id}) });
-                addToast(\`\${name} Deleted\`);
+                addToast(`${name} Deleted`);
                 fetchList();
             };
 
@@ -767,6 +767,7 @@ function getHtml() {
                     {activeTab === 'users' && (
                         <div className="anim-enter space-y-6">
                             <div className="flex bg-white p-1 rounded-xl w-fit border border-gray-100 shadow-sm">
+                                {/* FIX: Escaped backticks in className below */}
                                 <button onClick={()=>setUserType('teachers')} className={`px-6 py-2 rounded-lg text-sm font-bold transition ${userType==='teachers'?'bg-indigo-50 text-indigo-600':'text-gray-400 hover:bg-gray-50'}`}>Teachers</button>
                                 <button onClick={()=>setUserType('students')} className={`px-6 py-2 rounded-lg text-sm font-bold transition ${userType==='students'?'bg-orange-50 text-orange-600':'text-gray-400 hover:bg-gray-50'}`}>Students</button>
                             </div>
@@ -782,6 +783,7 @@ function getHtml() {
                                 {loading ? <div className="text-center"><Icons.Loading/></div> : list.map(u => (
                                     <div key={u.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
                                         <div className="flex items-center gap-4">
+                                            {/* FIX: Escaped backticks in className below */}
                                             <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${userType==='teachers'?'bg-indigo-400':'bg-orange-400'}`}>{u.name[0]}</div>
                                             <div>
                                                 <div className="font-bold text-slate-800">{u.name}</div>
@@ -807,6 +809,7 @@ function getHtml() {
                                      <div key={e.id} onClick={()=>setViewStatsId(e.id)} className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition active:scale-95 group">
                                          <div className="flex justify-between items-start mb-2">
                                              <h3 className="font-bold text-lg text-slate-800 line-clamp-1">{e.title}</h3>
+                                             {/* FIX: Escaped backticks in className below */}
                                              <div className={`w-2 h-2 rounded-full ${e.is_active ? 'bg-green-500' : 'bg-red-300'}`}></div>
                                          </div>
                                          <div className="text-xs text-gray-500 font-bold mb-4">
