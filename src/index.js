@@ -427,6 +427,10 @@ function getHtml() {
         const Icons = {
             Logo: () => <svg className="w-8 h-8 text-orange-500" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zm0 9l2.5-1.25L12 8.5l-2.5 1.25L12 11zm0 2.5l-5-2.5-5 2.5L12 22l10-8.5-5-2.5-5 2.5z"/></svg>,
             Home: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>,
+            // FIX: Added dedicated Logout Icon
+            Logout: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>,
+            // FIX: Added Refresh Icon
+            Refresh: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>,
             Exam: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>,
             Users: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>,
             Setting: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
@@ -456,8 +460,8 @@ function getHtml() {
         );
 
         const Toggle = ({ checked, onChange }) => (
-            <button onClick={() => onChange(!checked)} className={\`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none \${checked ? 'bg-green-400' : 'bg-gray-200'}\`}>
-                <span className={\`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform \${checked ? 'translate-x-6' : 'translate-x-1'}\`} />
+            <button onClick={() => onChange(!checked)} className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none ${checked ? 'bg-green-400' : 'bg-gray-200'}`}>
+                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
         );
 
@@ -505,7 +509,8 @@ function getHtml() {
             );
         }
 
-        function DashboardLayout({ user, onLogout, title, action, children, activeTab, onTabChange }) {
+        // FIX: Added onRefresh prop and Logout/Refresh buttons to DashboardLayout
+        function DashboardLayout({ user, onLogout, title, action, children, activeTab, onTabChange, onRefresh }) {
             const safeUser = user || { name: 'User', role: 'teacher' };
             const initial = (safeUser.name && safeUser.name[0]) ? safeUser.name[0] : 'U';
             
@@ -520,7 +525,7 @@ function getHtml() {
             ];
 
             return (
-                <div className="min-h-screen pb-20 md:pb-0 md:pl-20 lg:pl-64">
+                <div className="min-h-screen pb-24 md:pb-0 md:pl-20 lg:pl-64 bg-[#fff7ed]">
                     <aside className="fixed left-0 top-0 h-screen w-20 lg:w-64 bg-white border-r border-orange-100 hidden md:flex flex-col z-30">
                         <div className="p-6 flex items-center gap-3">
                             <Icons.Logo />
@@ -528,7 +533,7 @@ function getHtml() {
                         </div>
                         <nav className="flex-1 px-4 space-y-2 mt-4">
                             {tabs.map(t => (
-                                <button key={t.id} onClick={() => onTabChange(t.id)} className={\`w-full flex items-center gap-4 p-3 rounded-2xl transition-all btn-bounce \${activeTab === t.id ? 'bg-orange-100 text-orange-600 shadow-sm' : 'text-gray-400 hover:bg-gray-50'}\`}>
+                                <button key={t.id} onClick={() => onTabChange(t.id)} className={`w-full flex items-center gap-4 p-3 rounded-2xl transition-all btn-bounce ${activeTab === t.id ? 'bg-orange-100 text-orange-600 shadow-sm' : 'text-gray-400 hover:bg-gray-50'}`}>
                                     {t.icon}
                                     <span className="hidden lg:block font-bold text-sm">{t.label}</span>
                                 </button>
@@ -542,27 +547,39 @@ function getHtml() {
                                 </div>
                             </div>
                             <button onClick={onLogout} className="w-full flex items-center gap-4 p-3 rounded-2xl text-red-400 hover:bg-red-50 transition">
-                                <Icons.Home /> <span className="hidden lg:block font-bold text-sm">Logout</span>
+                                <Icons.Logout /> <span className="hidden lg:block font-bold text-sm">Logout</span>
                             </button>
                         </div>
                     </aside>
-                    <header className="md:hidden sticky top-0 bg-white/90 backdrop-blur-md border-b border-orange-100 p-4 flex justify-between items-center z-20">
+                    
+                    {/* Mobile Header */}
+                    <header className="md:hidden sticky top-0 bg-white/90 backdrop-blur-md border-b border-orange-100 p-4 flex justify-between items-center z-40">
                         <h1 className="text-xl font-bold text-slate-800">{title}</h1>
-                        <div className="flex gap-2">
+                        <div className="flex items-center gap-2">
+                            {/* Refresh Button */}
+                            {onRefresh && <button onClick={onRefresh} className="bg-gray-100 p-2 rounded-full text-gray-600 hover:bg-gray-200"><Icons.Refresh/></button>}
                             {action}
-                            <button onClick={onLogout} className="bg-orange-100 p-2 rounded-full text-orange-600"><Icons.Home/></button>
+                            {/* Logout Button */}
+                            <button onClick={onLogout} className="bg-red-50 p-2 rounded-full text-red-500"><Icons.Logout/></button>
                         </div>
                     </header>
-                    <header className="hidden md:flex sticky top-0 bg-white/90 backdrop-blur-md border-b border-orange-100 px-8 py-4 justify-between items-center z-20">
-                        <h1 className="text-2xl font-bold text-slate-800">{title}</h1>
+
+                    {/* Desktop Header */}
+                    <header className="hidden md:flex sticky top-0 bg-white/90 backdrop-blur-md border-b border-orange-100 px-8 py-4 justify-between items-center z-40">
+                        <div className="flex items-center gap-4">
+                            <h1 className="text-2xl font-bold text-slate-800">{title}</h1>
+                            {onRefresh && <button onClick={onRefresh} className="bg-gray-50 p-2 rounded-xl text-gray-500 hover:text-orange-500 transition" title="Refresh Data"><Icons.Refresh/></button>}
+                        </div>
                         {action}
                     </header>
-                    <main className="p-4 md:p-8 max-w-7xl mx-auto">
+
+                    <main className="p-4 md:p-8 max-w-7xl mx-auto min-h-[80vh]">
                         {children}
                     </main>
-                    <nav className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-orange-100 flex justify-around p-2 z-30 pb-safe">
+
+                    <nav className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-orange-100 flex justify-around p-2 z-50 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
                         {tabs.map(t => (
-                            <button key={t.id} onClick={() => onTabChange(t.id)} className={\`flex flex-col items-center p-2 rounded-xl transition w-full \${activeTab === t.id ? 'text-orange-500 bg-orange-50' : 'text-gray-400'}\`}>
+                            <button key={t.id} onClick={() => onTabChange(t.id)} className={`flex flex-col items-center p-2 rounded-xl transition w-full ${activeTab === t.id ? 'text-orange-500 bg-orange-50' : 'text-gray-400'}`}>
                                 {t.icon}
                                 <span className="text-[10px] font-bold mt-1">{t.label}</span>
                             </button>
@@ -628,6 +645,7 @@ function getHtml() {
                 if(activeTab === 'users') fetchList();
             }, [activeTab, userType]);
 
+            // Pass fetchList as refresh handler
             const fetchList = () => {
                 setLoading(true);
                 const endpoint = userType === 'teachers' ? '/api/admin/teachers' : '/api/students/list';
@@ -659,7 +677,7 @@ function getHtml() {
             };
 
             return (
-                <DashboardLayout user={user} onLogout={onLogout} title="Admin" activeTab={activeTab} onTabChange={setActiveTab}>
+                <DashboardLayout user={user} onLogout={onLogout} title="Admin" activeTab={activeTab} onTabChange={setActiveTab} onRefresh={fetchList}>
                     {activeTab === 'users' && (
                         <div className="anim-enter space-y-6">
                             <div className="flex bg-white p-1 rounded-xl w-fit border border-gray-100 shadow-sm">
@@ -705,29 +723,24 @@ function getHtml() {
             const [statId, setStatId] = useState(null);
 
             useEffect(() => { loadExams(); }, []);
-            const loadExams = () => fetch(\`/api/teacher/exams?teacher_id=\${user.id}\`).then(r=>r.json()).then(d=>setExams(Array.isArray(d)?d:[]));
+            const loadExams = () => fetch(`/api/teacher/exams?teacher_id=${user.id}`).then(r=>r.json()).then(d=>setExams(Array.isArray(d)?d:[]));
 
-            // FIX: Handle Browser Back Button Logic
+            // ... (Back button logic) ...
             useEffect(() => {
                 const handlePop = () => {
-                    // When user clicks browser Back, close any open panels
-                    setMode('list');
-                    setEditId(null);
-                    setStatId(null);
+                    setMode('list'); setEditId(null); setStatId(null);
                 };
                 window.addEventListener('popstate', handlePop);
                 return () => window.removeEventListener('popstate', handlePop);
             }, []);
 
-            // Helper to open views and push history state
             const navigateTo = (newMode, id=null) => {
-                window.history.pushState({ mode: newMode }, ''); // Create a history entry
+                window.history.pushState({ mode: newMode }, '');
                 if(newMode === 'create') setEditId(id);
                 if(newMode === 'stats') setStatId(id);
                 setMode(newMode);
             };
 
-            // FIX: Reset mode when switching tabs
             const handleTabChange = (newTab) => {
                 setTab(newTab);
                 if(mode !== 'list') setMode('list');
@@ -736,13 +749,13 @@ function getHtml() {
             const toggle = async (id, isActive) => { await fetch('/api/exam/toggle', {method:'POST', body:JSON.stringify({id, is_active:!isActive})}); loadExams(); };
             const del = async (id) => { if(!confirm("Delete?")) return; await fetch('/api/exam/delete', {method:'POST', body:JSON.stringify({id})}); loadExams(); };
 
-            // Using history.back() triggers the popstate listener we defined above
             if (mode === 'create') return <ExamEditor user={user} examId={editId} onCancel={() => window.history.back()} onFinish={() => { window.history.back(); loadExams(); addToast("Exam Saved!"); }} addToast={addToast} />;
             
-            if (mode === 'stats') return <DashboardLayout user={user} onLogout={onLogout} title="Analytics" activeTab={tab} onTabChange={handleTabChange} action={<button onClick={()=>window.history.back()} className="text-gray-500 font-bold">← Back</button>}><ExamStats examId={statId} /></DashboardLayout>;
+            // FIX: Pass loadExams as onRefresh to DashboardLayout
+            if (mode === 'stats') return <DashboardLayout user={user} onLogout={onLogout} title="Analytics" activeTab={tab} onTabChange={handleTabChange} action={<button onClick={()=>window.history.back()} className="text-gray-500 font-bold">← Back</button>} onRefresh={loadExams}><ExamStats examId={statId} /></DashboardLayout>;
 
             return (
-                <DashboardLayout user={user} onLogout={onLogout} title={tab==='exams'?'My Exams':'Students'} activeTab={tab} onTabChange={handleTabChange}
+                <DashboardLayout user={user} onLogout={onLogout} title={tab==='exams'?'My Exams':'Students'} activeTab={tab} onTabChange={handleTabChange} onRefresh={loadExams}
                     action={tab === 'exams' && <button onClick={() => navigateTo('create')} className="bg-orange-500 text-white px-4 py-2 rounded-xl font-bold shadow-lg shadow-orange-200 btn-bounce flex items-center gap-2"><Icons.Plus /> <span className="hidden sm:inline">New Exam</span></button>}
                 >
                     {tab === 'exams' && <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 anim-enter pb-20">{exams.map(e => (
@@ -814,138 +827,84 @@ function getHtml() {
         function ExamStats({ examId }) {
             const [data, setData] = useState([]);
             const [viewDetail, setViewDetail] = useState(null);
+            const [loading, setLoading] = useState(true);
             
-            useEffect(() => { fetch(\`/api/analytics/exam?exam_id=\${examId}\`).then(r=>r.json()).then(d=>setData(Array.isArray(d)?d:[])); }, [examId]);
+            useEffect(() => { 
+                fetch(`/api/analytics/exam?exam_id=${examId}`)
+                    .then(r=>r.json())
+                    .then(d=>{ setData(Array.isArray(d)?d:[]); setLoading(false); })
+                    .catch(()=>setLoading(false));
+            }, [examId]);
 
+            // FIX: Modal z-index increased for mobile, added close button at bottom too
             if(viewDetail) return (
-                <div className="bg-white rounded-xl border p-6 anim-enter">
-                    <button onClick={()=>setViewDetail(null)} className="mb-4 text-sm font-bold text-gray-500">← Back</button>
-                    <h3 className="font-bold text-xl mb-4">{viewDetail.name} <span className="text-sm font-normal text-gray-500">({viewDetail.roll})</span></h3>
-                    <div className="space-y-4">{JSON.parse(viewDetail.details || '[]').map((d,i)=><div key={i} className={\`p-4 rounded-lg border \${d.isCorrect?'bg-green-50 border-green-200':'bg-red-50 border-red-200'}\`}><div className="font-bold text-gray-800 mb-1">Q{i+1}: {d.qText}</div><div className="text-sm"><span className="font-bold">Student:</span> {d.selectedText} {!d.isCorrect && <span className="ml-4 text-gray-600"><span className="font-bold">Correct:</span> {d.correctText}</span>}</div></div>)}</div>
+                <div className="fixed inset-0 bg-white z-[60] overflow-y-auto anim-enter">
+                    <div className="sticky top-0 bg-white/95 backdrop-blur border-b border-orange-100 p-4 flex justify-between items-center shadow-sm">
+                        <button onClick={()=>setViewDetail(null)} className="flex items-center gap-2 text-gray-500 font-bold"><Icons.Back/> Back</button>
+                        <span className="font-bold text-lg truncate max-w-[50%]">{viewDetail.name}</span>
+                    </div>
+                    <div className="p-4 max-w-2xl mx-auto pb-20">
+                        <h3 className="font-bold text-2xl mb-1 text-center">{viewDetail.name}</h3>
+                        <p className="text-center text-gray-400 mb-6 font-bold">{viewDetail.roll ? `Roll: ${viewDetail.roll}` : ''}</p>
+                        
+                        <div className="flex justify-center gap-4 mb-8">
+                            <div className="bg-green-50 text-green-600 px-4 py-2 rounded-xl font-bold border border-green-100">Score: {viewDetail.score}/{viewDetail.total}</div>
+                            <div className="bg-blue-50 text-blue-600 px-4 py-2 rounded-xl font-bold border border-blue-100">{Math.round((viewDetail.score/viewDetail.total)*100)}%</div>
+                        </div>
+
+                        <div className="space-y-4">
+                            {JSON.parse(viewDetail.details || '[]').map((d,i)=>(
+                                <div key={i} className={`p-4 rounded-2xl border ${d.isCorrect?'bg-green-50/50 border-green-200':'bg-red-50/50 border-red-200'}`}>
+                                    <div className="font-bold text-gray-800 mb-2">Q{i+1}: {d.qText}</div>
+                                    <div className="text-sm space-y-1">
+                                        <div className="flex items-start gap-2">
+                                            <span className="font-bold min-w-[60px] text-gray-500">Student:</span> 
+                                            <span className={d.isCorrect ? 'text-green-600 font-bold' : 'text-red-500 font-bold'}>{d.selectedText || 'Skipped'}</span>
+                                        </div>
+                                        {!d.isCorrect && (
+                                            <div className="flex items-start gap-2">
+                                                <span className="font-bold min-w-[60px] text-gray-500">Correct:</span> 
+                                                <span className="text-gray-800 font-bold">{d.correctText}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
                 </div>
             )
 
-            return <div className="space-y-3 pb-20">{data.map(r=><div key={r.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center"><div><div className="font-bold">{r.name}</div><div className="text-xs text-gray-500">{r.class && \`Class \${r.class}\`} {new Date(r.timestamp).toLocaleString()}</div></div><div className="flex items-center gap-3"><span className="font-bold">{r.score}/{r.total}</span><button onClick={()=>setViewDetail(r)} className="text-indigo-600 text-xs font-bold border border-indigo-200 px-2 py-1 rounded">View</button></div></div>)}</div>
-        }
+            if(loading) return <div className="text-center py-10 text-gray-400 font-bold"><Icons.Loading/> Loading results...</div>;
 
-        function ExamEditor({ user, examId, onCancel, onFinish, addToast }) {
-            const [meta, setMeta] = useState({ title: '', timerMode: 'question', timerValue: 30, allowBack: false, allowRetakes: false });
-            const [qs, setQs] = useState([]);
-            const [activeQ, setActiveQ] = useState(null); 
-            const [submitting, setSubmitting] = useState(false);
-
-            useEffect(() => {
-                if (examId) fetch(\`/api/teacher/exam-details?id=\${examId}\`).then(r => r.json()).then(data => {
-                    setMeta({ ...meta, ...JSON.parse(data.exam.settings || '{}'), title: data.exam.title });
-                    setQs(data.questions.map(q => ({ ...q, choices: JSON.parse(q.choices) })));
-                });
-            }, [examId]);
-
-            const saveQ = (q) => {
-                if (!q.text || !q.choices.some(c => c.isCorrect)) return addToast("Incomplete Question", 'error');
-                setQs(prev => {
-                    const exists = prev.find(x => x.tempId === q.tempId);
-                    if(exists) return prev.map(x => x.tempId === q.tempId ? q : x);
-                    return [...prev, { ...q, tempId: Date.now() }];
-                });
-                setActiveQ(null);
-            };
-
-            const publish = async () => {
-                if (submitting) return; 
-                if (!meta.title || qs.length === 0) return addToast("Needs title & questions", 'error');
-                setSubmitting(true);
-                try {
-                    const res = await fetch('/api/exam/save', { method: 'POST', body: JSON.stringify({ id: examId, title: meta.title, teacher_id: user.id, settings: meta }) });
-                    const data = await res.json();
-                    for (let q of qs) {
-                        const fd = new FormData();
-                        fd.append('exam_id', data.id);
-                        fd.append('text', q.text);
-                        fd.append('choices', JSON.stringify(q.choices));
-                        
-                        // Handle Image Logic
-                        if (q.image === null && q.image_key === null) {
-                           // No op (Backend will store null if no existing_key sent)
-                        } else if (q.image instanceof File) {
-                           fd.append('image', q.image);
-                        } else if (q.image_key) {
-                           fd.append('existing_image_key', q.image_key);
-                        }
-
-                        await fetch('/api/question/add', { method: 'POST', body: fd });
-                    }
-                    onFinish();
-                } catch(e) { addToast("Error Saving", 'error'); } 
-                finally { setSubmitting(false); }
-            };
-
-            const downloadTemplate = () => {
-                const example = [
-                    { "text": "What is 2+2?", "choices": [ {"text": "3", "isCorrect": false}, {"text": "4", "isCorrect": true} ] }
-                ];
-                const blob = new Blob([JSON.stringify(example, null, 2)], {type: "application/json"});
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = "exam_example.json";
-                a.click();
-            };
-
-            const handleJsonImport = (e) => {
-                 const file = e.target.files[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    try {
-                        const json = JSON.parse(event.target.result);
-                        if (!Array.isArray(json)) throw new Error("Root must be an array");
-                        const newQs = json.map(q => ({
-                            text: q.text || "Untitled Question",
-                            choices: Array.isArray(q.choices) ? q.choices.map((c, i) => ({ id: Date.now() + Math.random() + i, text: c.text || "", isCorrect: !!c.isCorrect })) : [],
-                            tempId: Date.now() + Math.random()
-                        }));
-                        setQs(prev => [...prev, ...newQs]);
-                        addToast(\`Imported \${newQs.length} questions\`);
-                    } catch (err) { addToast("Invalid JSON Format", 'error'); }
-                };
-                reader.readAsText(file);
-                e.target.value = null;
-            };
+            // FIX: Show one tile per student (latest attempt)
+            // Group by student_db_id
+            const uniqueResults = [];
+            const seen = new Set();
+            data.forEach(r => {
+                if(!seen.has(r.student_db_id)) {
+                    seen.add(r.student_db_id);
+                    uniqueResults.push(r);
+                }
+            });
 
             return (
-                <div className="min-h-screen bg-white md:bg-gray-50 flex flex-col">
-                    <div className="sticky top-0 bg-white border-b border-orange-100 p-4 flex justify-between items-center z-40">
-                        <button onClick={onCancel} disabled={submitting} className="text-gray-400 font-bold"><Icons.Back /></button>
-                        <h2 className="font-bold text-lg">{examId ? 'Edit Exam' : 'New Class Exam'}</h2>
-                        <button onClick={publish} disabled={submitting} className="text-orange-600 font-bold text-sm flex items-center gap-2">{submitting && <Icons.Loading />}{submitting ? 'Saving...' : 'Save'}</button>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto p-4 max-w-2xl mx-auto w-full">
-                        <div className="bg-white md:rounded-3xl md:p-6 md:shadow-sm space-y-6">
-                            <div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Title</label><input value={meta.title} onChange={e => setMeta({ ...meta, title: e.target.value })} className="w-full text-2xl font-bold border-b-2 border-gray-100 focus:border-orange-400 outline-none placeholder-gray-200" placeholder="e.g. Science Quiz" /></div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="bg-gray-50 p-3 rounded-2xl"><label className="text-xs font-bold text-gray-400 uppercase">Timer</label><div className="flex gap-2 mt-1"><select value={meta.timerMode} onChange={e => setMeta({ ...meta, timerMode: e.target.value })} className="bg-transparent font-bold text-sm outline-none"><option value="question">Per Q</option><option value="total">Total</option></select><input type="number" value={meta.timerValue} onChange={e => setMeta({ ...meta, timerValue: e.target.value })} className="w-12 bg-white rounded-lg text-center font-bold text-sm" /></div></div>
-                                <div className="bg-gray-50 p-3 rounded-2xl flex items-center justify-between"><span className="text-xs font-bold text-gray-400 uppercase">Back Nav</span><Toggle checked={meta.allowBack} onChange={v => setMeta({ ...meta, allowBack: v })} /></div>
-                            </div>
+                <div className="space-y-3 pb-24">
+                    {uniqueResults.length === 0 && <div className="text-center py-10 text-gray-400">No attempts yet.</div>}
+                    {uniqueResults.map(r=>(
+                        <div key={r.id} onClick={()=>setViewDetail(r)} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center cursor-pointer active:scale-95 transition hover:shadow-sm">
                             <div>
-                                <div className="flex gap-2 mb-4"><label className="flex items-center gap-2 bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-sm font-bold cursor-pointer hover:bg-indigo-100 transition"><Icons.Upload /> Import JSON<input type="file" className="hidden" accept=".json" onChange={handleJsonImport} /></label><button onClick={downloadTemplate} className="flex items-center gap-2 bg-gray-50 text-gray-500 px-4 py-2 rounded-xl text-sm font-bold hover:bg-gray-100 transition"><Icons.Download /> Example</button></div>
-                                <div className="space-y-3 mb-20">{qs.map((q, i) => (<div key={i} onClick={() => setActiveQ(q)} className="bg-white border border-gray-100 p-4 rounded-2xl shadow-sm flex items-center gap-4 active:scale-95 transition cursor-pointer"><span className="font-bold text-orange-400 bg-orange-50 w-8 h-8 flex items-center justify-center rounded-full text-xs">{i + 1}</span>{q.image_key && <Icons.Image />}<div className="flex-1 min-w-0"><p className="font-bold text-sm truncate">{q.text}</p><p className="text-xs text-gray-400">{q.choices.length} options</p></div><button onClick={(e) => { e.stopPropagation(); setQs(qs.filter(x => x !== q)); }} className="text-red-300"><Icons.Trash /></button></div>))}
-                                    <button onClick={() => setActiveQ({ text: '', choices: [{ id: 1, text: '', isCorrect: false }, { id: 2, text: '', isCorrect: false }], tempId: Date.now() })} className="w-full py-4 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 font-bold text-sm hover:border-orange-300 hover:text-orange-500 transition">+ Add Question</button>
+                                <div className="font-bold text-slate-800">{r.name} {r.roll && <span className="text-gray-400 font-normal text-xs ml-1">(Roll: {r.roll})</span>}</div>
+                                <div className="text-xs text-gray-500 mt-1">{r.class && `Class ${r.class}`} • {new Date(r.timestamp).toLocaleDateString()}</div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <div className={`px-3 py-1 rounded-lg font-bold text-sm ${ (r.score/r.total) >= 0.6 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600' }`}>
+                                    {Math.round((r.score/r.total)*100)}%
                                 </div>
+                                <Icons.Back className="rotate-180 w-4 h-4 text-gray-300" />
                             </div>
                         </div>
-                    </div>
-                    {activeQ && (
-                        <div className="fixed inset-0 bg-white z-50 flex flex-col anim-enter">
-                            <div className="p-4 border-b flex justify-between items-center bg-gray-50"><button onClick={() => setActiveQ(null)} className="font-bold text-gray-500">Cancel</button><span className="font-bold">Edit Question</span><button onClick={() => saveQ(activeQ)} className="font-bold text-green-600 bg-green-50 px-4 py-1 rounded-lg">Done</button></div>
-                            <div className="flex-1 overflow-y-auto p-6 max-w-2xl mx-auto w-full">
-                                <textarea value={activeQ.text} onChange={e => setActiveQ({ ...activeQ, text: e.target.value })} className="w-full text-xl font-bold outline-none resize-none placeholder-gray-300 mb-6" placeholder="Type question here..." rows="3" autoFocus />
-                                <div className="mb-6"><label className="block w-full"><div className="w-full h-40 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400 cursor-pointer hover:bg-gray-100 relative overflow-hidden">{activeQ.image ? (activeQ.image instanceof File ? <img src={URL.createObjectURL(activeQ.image)} className="h-full w-full object-contain" /> : <div className="text-center"><img src="https://placehold.co/100x100?text=Existing" className="h-20 w-auto opacity-50 mx-auto" /><span className="text-xs font-bold text-green-500 block mt-2">Image Attached</span></div>) : activeQ.image_key ? (<div className="text-center"><img src={\`/img/\${activeQ.image_key}\`} className="h-32 object-contain mx-auto" /></div>) : (<><Icons.Image /><span className="text-xs font-bold mt-2">Add Photo</span></>)}
-                                {activeQ.image instanceof File && (<div className="absolute bottom-0 left-0 w-full bg-black/50 text-white text-xs p-2 text-center backdrop-blur-sm">{activeQ.image.name} ({(activeQ.image.size/1024).toFixed(1)} KB)</div>)}</div><input type="file" className="hidden" accept="image/*" onChange={e => {if(e.target.files[0]) { setActiveQ({ ...activeQ, image: e.target.files[0] }); }}} /></label>{(activeQ.image || activeQ.image_key) && (<button onClick={()=>setActiveQ({...activeQ, image: null, image_key: null})} className="text-red-500 text-xs font-bold mt-2 flex items-center gap-1 justify-center"><Icons.Trash/> Remove Image</button>)}</div>
-                                <div className="space-y-3">{activeQ.choices.map((c, i) => (<div key={c.id} className="flex items-center gap-3"><div onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => ({ ...x, isCorrect: x.id === c.id })) })} className={\`w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition \${c.isCorrect ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300'}\`}>{c.isCorrect && <span className="font-bold text-sm">✓</span>}</div><input value={c.text} onChange={e => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => x.id === c.id ? { ...x, text: e.target.value } : x) })} className="flex-1 bg-gray-50 p-3 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-orange-200" placeholder={\`Option \${i + 1}\`} /><button onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.filter(x => x.id !== c.id) })} className="text-gray-300 px-2">×</button></div>))}<button onClick={() => setActiveQ({ ...activeQ, choices: [...activeQ.choices, { id: Date.now(), text: '', isCorrect: false }] })} className="text-sm font-bold text-blue-500 mt-2 ml-11">+ Add Option</button></div>
-                            </div>
-                        </div>
-                    )}
+                    ))}
                 </div>
             );
         }
@@ -1181,6 +1140,13 @@ function getHtml() {
              const [id, setId] = useState('');
              const [data, setData] = useState(null);
              
+             // FIX: Added manual refresh function
+             const refreshData = async () => {
+                 if(!localStorage.getItem('student_id')) return;
+                 const res = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: localStorage.getItem('student_id') }) }).then(r => r.json()); 
+                 if(res.found) setData(res);
+             };
+
              const login = async (e) => { 
                  e.preventDefault(); 
                  const res = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: id }) }).then(r => r.json()); 
@@ -1197,14 +1163,14 @@ function getHtml() {
 
              if(!data) return (
                 <div className="min-h-screen bg-orange-50 flex items-center justify-center p-6">
-                    <div className="bg-white w-full max-w-sm p-8 rounded-3xl shadow-xl text-center anim-pop">
+                    <div className="bg-white w-full max-w-sm p-8 rounded-3xl shadow-xl text-center anim-pop relative">
+                        <button onClick={onBack} className="absolute top-6 left-6 text-gray-400 font-bold text-sm">Back</button>
                         <div className="mb-6 mx-auto w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center text-orange-500"><Icons.Logo /></div>
                         <h1 className="text-2xl font-bold text-slate-800 mb-2">Student Hub</h1>
                         <form onSubmit={login}>
                             <input value={id} onChange={e=>setId(e.target.value)} className="w-full bg-gray-100 p-4 rounded-2xl font-bold text-center text-lg outline-none focus:ring-2 focus:ring-orange-400 mb-4" placeholder="Enter School ID" />
                             <button className="w-full bg-orange-500 text-white font-bold py-4 rounded-2xl btn-bounce shadow-lg shadow-orange-200">Enter</button>
                         </form>
-                        <button onClick={onBack} className="mt-6 text-gray-400 font-bold text-sm">Back to Home</button>
                     </div>
                 </div>
             );
@@ -1213,11 +1179,15 @@ function getHtml() {
                 <div className="min-h-screen bg-orange-50 pb-safe">
                     <div className="bg-orange-500 p-8 pb-16 rounded-b-[40px] text-white shadow-lg relative overflow-hidden">
                         <div className="relative z-10">
+                            {/* FIX: Improved Mobile Header in Dashboard */}
                             <div className="flex justify-between items-center mb-6">
-                                <button onClick={()=>{localStorage.removeItem('student_id'); setData(null);}} className="bg-white/20 p-2 rounded-xl backdrop-blur-sm text-sm font-bold">Logout</button>
+                                <div className="flex gap-2">
+                                    <button onClick={()=>{localStorage.removeItem('student_id'); setData(null);}} className="bg-white/20 p-2 rounded-xl backdrop-blur-sm text-sm font-bold flex items-center gap-2 hover:bg-white/30 transition"><Icons.Logout/> Logout</button>
+                                    <button onClick={refreshData} className="bg-white/20 p-2 rounded-xl backdrop-blur-sm text-white hover:bg-white/30 transition"><Icons.Refresh/></button>
+                                </div>
                                 <span className="font-bold opacity-70">My Class</span>
                             </div>
-                            <h1 className="text-3xl font-bold mb-1">Hi, {data.student.name.split(' ')[0]}!</h1>
+                            <h1 className="text-3xl font-bold mb-1 truncate">Hi, {data.student.name.split(' ')[0]}!</h1>
                             <p className="opacity-80 font-bold text-sm tracking-wide">{data.student.school_id} • Class {data.student.class || 'N/A'}</p>
                         </div>
                     </div>
@@ -1234,14 +1204,17 @@ function getHtml() {
                             </div>
                         </div>
                         <div className="space-y-4 pb-10">
-                            <h3 className="font-bold text-slate-400 text-xs uppercase ml-2">Recent Activities</h3>
+                            <div className="flex justify-between items-center px-2">
+                                <h3 className="font-bold text-slate-400 text-xs uppercase">Recent Activities</h3>
+                                <button onClick={refreshData} className="text-orange-500 text-xs font-bold">Refresh</button>
+                            </div>
                             {data.history.map(h => (
                                 <div key={h.id} className="bg-white p-5 rounded-2xl shadow-sm border border-orange-50 flex justify-between items-center">
                                     <div>
                                         <h4 className="font-bold text-slate-800">{h.title}</h4>
                                         <p className="text-xs text-gray-400 font-bold">{new Date(h.timestamp).toLocaleDateString()}</p>
                                     </div>
-                                    <div className={\`text-lg font-black \${(h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400'}\`}>{h.score}/{h.total}</div>
+                                    <div className={`text-lg font-black ${ (h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400' }`}>{h.score}/{h.total}</div>
                                 </div>
                             ))}
                         </div>
