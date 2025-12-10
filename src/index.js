@@ -150,6 +150,17 @@ async function handleApi(request, env, path, url) {
       return Response.json(teachers.results);
     }
 
+    // FIX: Added Endpoint for Admin to see ALL Exams with Teacher Names
+    if (path === '/api/admin/exams' && method === 'GET') {
+        const exams = await env.DB.prepare(`
+            SELECT e.*, u.name as teacher_name 
+            FROM exams e 
+            LEFT JOIN users u ON e.teacher_id = u.id 
+            ORDER BY e.created_at DESC
+        `).all();
+        return Response.json(exams.results);
+    }
+
     if (path === '/api/admin/teacher/delete' && method === 'POST') {
         const { id } = await request.json();
         await env.DB.prepare("DELETE FROM users WHERE id = ? AND role = 'teacher'").bind(id).run();
@@ -569,6 +580,7 @@ function getHtml() {
                 ...(safeUser.role === 'teacher' ? [{ id: 'students', icon: <Icons.Users />, label: 'Students' }] : []),
                 ...(safeUser.role === 'super_admin' ? [
                     { id: 'users', icon: <Icons.Users />, label: 'Users' },
+                    { id: 'exams', icon: <Icons.Exam />, label: 'All Exams' }, // FIX: Added All Exams tab for Admin
                     { id: 'school', icon: <Icons.School />, label: 'School Data' },
                     { id: 'settings', icon: <Icons.Setting />, label: 'Settings' }
                 ] : []),
@@ -692,10 +704,13 @@ function getHtml() {
             const [activeTab, setActiveTab] = useState('users');
             const [userType, setUserType] = useState('teachers'); 
             const [list, setList] = useState([]);
+            const [examList, setExamList] = useState([]); // FIX: State for exams
+            const [viewStatsId, setViewStatsId] = useState(null); // FIX: State for drilling down
             const [loading, setLoading] = useState(false);
 
             useEffect(() => {
                 if(activeTab === 'users') fetchList();
+                if(activeTab === 'exams') fetchExams(); // FIX: Fetch exams when tab active
             }, [activeTab, userType]);
 
             // Pass fetchList as refresh handler
@@ -704,6 +719,15 @@ function getHtml() {
                 const endpoint = userType === 'teachers' ? '/api/admin/teachers' : '/api/students/list';
                 fetch(endpoint).then(r=>r.json()).then(d => {
                     setList(Array.isArray(d) ? d : []);
+                    setLoading(false);
+                }).catch(() => setLoading(false));
+            }
+
+            // FIX: Function to fetch all exams
+            const fetchExams = () => {
+                setLoading(true);
+                fetch('/api/admin/exams').then(r=>r.json()).then(d => {
+                    setExamList(Array.isArray(d) ? d : []);
                     setLoading(false);
                 }).catch(() => setLoading(false));
             }
@@ -729,13 +753,22 @@ function getHtml() {
                 else addToast("Failed", 'error');
             };
 
+            // FIX: Render ExamStats if an exam is selected
+            if (viewStatsId) {
+                 return (
+                    <DashboardLayout user={user} onLogout={onLogout} title="Exam Analytics" activeTab={activeTab} onTabChange={(t) => { setViewStatsId(null); setActiveTab(t); }} action={<button onClick={()=>setViewStatsId(null)} className="text-gray-500 font-bold">← Back</button>}>
+                        <ExamStats examId={viewStatsId} />
+                    </DashboardLayout>
+                 );
+            }
+
             return (
-                <DashboardLayout user={user} onLogout={onLogout} title="Admin" activeTab={activeTab} onTabChange={setActiveTab} onRefresh={fetchList}>
+                <DashboardLayout user={user} onLogout={onLogout} title="Admin" activeTab={activeTab} onTabChange={setActiveTab} onRefresh={activeTab === 'exams' ? fetchExams : fetchList}>
                     {activeTab === 'users' && (
                         <div className="anim-enter space-y-6">
                             <div className="flex bg-white p-1 rounded-xl w-fit border border-gray-100 shadow-sm">
-                                <button onClick={()=>setUserType('teachers')} className={\`px-6 py-2 rounded-lg text-sm font-bold transition \${userType==='teachers'?'bg-indigo-50 text-indigo-600':'text-gray-400 hover:bg-gray-50'}\`}>Teachers</button>
-                                <button onClick={()=>setUserType('students')} className={\`px-6 py-2 rounded-lg text-sm font-bold transition \${userType==='students'?'bg-orange-50 text-orange-600':'text-gray-400 hover:bg-gray-50'}\`}>Students</button>
+                                <button onClick={()=>setUserType('teachers')} className={`px-6 py-2 rounded-lg text-sm font-bold transition ${userType==='teachers'?'bg-indigo-50 text-indigo-600':'text-gray-400 hover:bg-gray-50'}`}>Teachers</button>
+                                <button onClick={()=>setUserType('students')} className={`px-6 py-2 rounded-lg text-sm font-bold transition ${userType==='students'?'bg-orange-50 text-orange-600':'text-gray-400 hover:bg-gray-50'}`}>Students</button>
                             </div>
                             {userType === 'teachers' && (
                                 <form onSubmit={addTeacher} className="flex flex-col md:flex-row gap-3 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
@@ -749,7 +782,7 @@ function getHtml() {
                                 {loading ? <div className="text-center"><Icons.Loading/></div> : list.map(u => (
                                     <div key={u.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
                                         <div className="flex items-center gap-4">
-                                            <div className={\`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white \${userType==='teachers'?'bg-indigo-400':'bg-orange-400'}\`}>{u.name[0]}</div>
+                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${userType==='teachers'?'bg-indigo-400':'bg-orange-400'}`}>{u.name[0]}</div>
                                             <div>
                                                 <div className="font-bold text-slate-800">{u.name}</div>
                                                 <div className="text-xs text-gray-400 font-mono">{u.username || u.school_id}</div>
@@ -762,6 +795,33 @@ function getHtml() {
                             </div>
                         </div>
                     )}
+                    
+                    {/* FIX: New Exam List View for Admin */}
+                    {activeTab === 'exams' && (
+                        <div className="anim-enter space-y-4">
+                             {loading && <div className="text-center py-10 text-gray-400 font-bold animate-pulse">Loading Exams...</div>}
+                             {!loading && examList.length === 0 && <div className="text-center py-10 text-gray-400 font-bold">No exams found in the system.</div>}
+                             
+                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                 {examList.map(e => (
+                                     <div key={e.id} onClick={()=>setViewStatsId(e.id)} className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition active:scale-95 group">
+                                         <div className="flex justify-between items-start mb-2">
+                                             <h3 className="font-bold text-lg text-slate-800 line-clamp-1">{e.title}</h3>
+                                             <div className={`w-2 h-2 rounded-full ${e.is_active ? 'bg-green-500' : 'bg-red-300'}`}></div>
+                                         </div>
+                                         <div className="text-xs text-gray-500 font-bold mb-4">
+                                             Created by: <span className="text-indigo-600">{e.teacher_name || 'Unknown Teacher'}</span>
+                                         </div>
+                                         <div className="flex justify-between items-center pt-4 border-t border-gray-50">
+                                             <span className="text-[10px] text-gray-400 font-bold">{new Date(e.created_at).toLocaleDateString()}</span>
+                                             <button className="bg-blue-50 text-blue-600 p-2 rounded-xl group-hover:bg-blue-100 transition"><Icons.Chart /></button>
+                                         </div>
+                                     </div>
+                                 ))}
+                             </div>
+                        </div>
+                    )}
+
                     {activeTab === 'school' && <SchoolConfigView addToast={addToast} />}
                     {activeTab === 'settings' && <div className="anim-enter bg-red-50 p-8 rounded-xl"><button onClick={handleReset} className="bg-red-600 text-white px-6 py-3 rounded-lg font-bold">Factory Reset</button></div>}
                 </DashboardLayout>
