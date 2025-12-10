@@ -574,7 +574,8 @@ function getHtml() {
             ];
 
             return (
-                <div className="min-h-screen pb-24 md:pb-0 md:pl-20 lg:pl-64 bg-[#fff7ed]">
+                // FIX: Changed min-h-screen to min-h-[100dvh] for better mobile support
+                <div className="min-h-[100dvh] pb-24 md:pb-0 md:pl-20 lg:pl-64 bg-[#fff7ed]">
                     <aside className="fixed left-0 top-0 h-screen w-20 lg:w-64 bg-white border-r border-orange-100 hidden md:flex flex-col z-30">
                         <div className="p-6 flex items-center gap-3">
                             <Icons.Logo />
@@ -770,11 +771,22 @@ function getHtml() {
             const [tab, setTab] = useState('exams');
             const [mode, setMode] = useState('list');
             const [exams, setExams] = useState([]);
+            const [loading, setLoading] = useState(false); // Added loading state
             const [editId, setEditId] = useState(null);
             const [statId, setStatId] = useState(null);
 
             useEffect(() => { loadExams(); }, []);
-            const loadExams = () => fetch(\`/api/teacher/exams?teacher_id=\${user.id}\`).then(r=>r.json()).then(d=>setExams(Array.isArray(d)?d:[]));
+            
+            const loadExams = () => {
+                setLoading(true);
+                fetch(`/api/teacher/exams?teacher_id=${user.id}`)
+                    .then(r=>r.json())
+                    .then(d=>{
+                        setExams(Array.isArray(d)?d:[]);
+                        setLoading(false);
+                    })
+                    .catch(() => setLoading(false));
+            };
 
             // ... (Back button logic) ...
             useEffect(() => {
@@ -809,16 +821,26 @@ function getHtml() {
                 <DashboardLayout user={user} onLogout={onLogout} title={tab==='exams'?'My Exams':'Students'} activeTab={tab} onTabChange={handleTabChange} onRefresh={loadExams}
                     action={tab === 'exams' && <button onClick={() => navigateTo('create')} className="bg-orange-500 text-white px-4 py-2 rounded-xl font-bold shadow-lg shadow-orange-200 btn-bounce flex items-center gap-2"><Icons.Plus /> <span className="hidden sm:inline">New Exam</span></button>}
                 >
-                    {tab === 'exams' && <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 anim-enter pb-20">{exams.map(e => (
-                        <div key={e.id} className="bg-white p-5 rounded-3xl shadow-sm border border-orange-100 relative group overflow-hidden">
-                            <div className={\`absolute top-0 left-0 w-2 h-full \${e.is_active ? 'bg-green-400' : 'bg-gray-300'}\`}></div>
-                            <div className="pl-4">
-                                <div className="flex justify-between items-start mb-2"><h3 className="font-bold text-lg text-slate-800 line-clamp-1">{e.title}</h3><button onClick={()=>del(e.id)} className="text-gray-300 hover:text-red-500"><Icons.Trash/></button></div>
-                                <div className="flex justify-between items-center mt-4"><Toggle checked={!!e.is_active} onChange={()=>toggle(e.id, e.is_active)} /><div className="flex gap-2"><button onClick={() => navigateTo('create', e.id)} className="bg-orange-50 text-orange-600 p-2 rounded-xl"><Icons.Edit /></button><button onClick={() => navigateTo('stats', e.id)} className="bg-blue-50 text-blue-600 p-2 rounded-xl"><Icons.Chart /></button></div></div>
-                                <button onClick={() => { navigator.clipboard.writeText(\`\${window.location.origin}/?exam=\${e.link_id}\`); addToast("Link Copied!"); }} className="w-full mt-4 bg-gray-50 text-gray-600 text-xs font-bold py-2 rounded-xl hover:bg-gray-100">Copy Link</button>
+                    {tab === 'exams' && (
+                        <>
+                            {loading && <div className="text-center py-10 text-gray-400 font-bold animate-pulse">Loading Exams...</div>}
+                            {!loading && exams.length === 0 && <div className="text-center py-10 text-gray-400 font-bold">No exams created yet. Tap "New Exam" to start!</div>}
+                            
+                            {/* FIX: Added 'grid-cols-1' and 'w-full' to ensure visibility on mobile */}
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 w-full anim-enter pb-20">
+                                {exams.map(e => (
+                                    <div key={e.id} className="bg-white p-5 rounded-3xl shadow-sm border border-orange-100 relative group overflow-hidden">
+                                        <div className={`absolute top-0 left-0 w-2 h-full ${e.is_active ? 'bg-green-400' : 'bg-gray-300'}`}></div>
+                                        <div className="pl-4">
+                                            <div className="flex justify-between items-start mb-2"><h3 className="font-bold text-lg text-slate-800 line-clamp-1">{e.title}</h3><button onClick={()=>del(e.id)} className="text-gray-300 hover:text-red-500"><Icons.Trash/></button></div>
+                                            <div className="flex justify-between items-center mt-4"><Toggle checked={!!e.is_active} onChange={()=>toggle(e.id, e.is_active)} /><div className="flex gap-2"><button onClick={() => navigateTo('create', e.id)} className="bg-orange-50 text-orange-600 p-2 rounded-xl"><Icons.Edit /></button><button onClick={() => navigateTo('stats', e.id)} className="bg-blue-50 text-blue-600 p-2 rounded-xl"><Icons.Chart /></button></div></div>
+                                            <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/?exam=${e.link_id}`); addToast("Link Copied!"); }} className="w-full mt-4 bg-gray-50 text-gray-600 text-xs font-bold py-2 rounded-xl hover:bg-gray-100">Copy Link</button>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
-                        </div>
-                    ))}</div>}
+                        </>
+                    )}
                     {tab === 'students' && <StudentList />}
                 </DashboardLayout>
             );
