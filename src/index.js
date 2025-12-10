@@ -2,7 +2,7 @@
  * Cloudflare Worker - My Class (SaaS Masterclass)
  * - Security: Password Hashing, JWT, Server-Side Grading, Secure Headers
  * - Features: Admin/Teacher/Student portals, Analytics, R2 Images
- * - Fixes: Restored full backend code, fixed StudentPortal reference error
+ * - Fixes: Escaped backticks in StudentExamApp fetch URL to fix build error
  */
 
 const JWT_SECRET = "CHANGE_THIS_SECRET_IN_PROD_TO_SOMETHING_RANDOM_AND_LONG"; 
@@ -103,7 +103,6 @@ async function handleApi(request, env, path, url) {
   };
 
   try {
-    // 1. SYSTEM INIT & RESET
     if (path === '/api/system/status' && method === 'GET') {
       try {
         const count = await env.DB.prepare("SELECT COUNT(*) as count FROM users").first('count');
@@ -123,10 +122,8 @@ async function handleApi(request, env, path, url) {
           env.DB.prepare("CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER, text TEXT, image_key TEXT, choices TEXT)"),
           env.DB.prepare("CREATE TABLE IF NOT EXISTS attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER, student_db_id INTEGER, score INTEGER, total INTEGER, details TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(student_db_id) REFERENCES students(id))")
         ]);
-        
         try { await env.DB.prepare("ALTER TABLE students ADD COLUMN class TEXT").run(); } catch(e) {}
         try { await env.DB.prepare("ALTER TABLE students ADD COLUMN section TEXT").run(); } catch(e) {}
-
         return Response.json({ success: true });
       } catch (err) {
         return Response.json({ error: "DB Init Error: " + err.message }, { status: 500 });
@@ -158,7 +155,6 @@ async function handleApi(request, env, path, url) {
         }
     }
 
-    // 2. CONFIG (Classes/Sections)
     if (path === '/api/config/get' && method === 'GET') {
         try {
             const data = await env.DB.prepare("SELECT * FROM school_config ORDER BY value ASC").all();
@@ -183,17 +179,13 @@ async function handleApi(request, env, path, url) {
         return Response.json({ success: true });
     }
 
-    // 3. AUTH & USER MANAGEMENT
     if (path === '/api/auth/setup-admin' && method === 'POST') {
       let count = 0;
       try { count = await env.DB.prepare("SELECT COUNT(*) as count FROM users").first('count'); } 
       catch(e) { return Response.json({ error: "Database not initialized." }, { status: 500 }); }
-
       if (count > 0) return Response.json({ error: "Admin already exists" }, { status: 403 });
-
       const { username, password, name } = await request.json();
       const hashedPassword = await hashPassword(password);
-      
       await env.DB.prepare("INSERT INTO users (username, password, name, role) VALUES (?, ?, ?, 'super_admin')")
         .bind(username, hashedPassword, name).run();
       return Response.json({ success: true });
@@ -202,12 +194,9 @@ async function handleApi(request, env, path, url) {
     if (path === '/api/auth/login' && method === 'POST') {
       const { username, password } = await request.json();
       const user = await env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first();
-      
       if (!user || !(await verifyPassword(password, user.password))) {
           return Response.json({ error: "Invalid credentials" }, { status: 401 });
       }
-      
-      // Issue Token
       const token = await signJwt({ id: user.id, role: user.role, name: user.name });
       return Response.json({ success: true, user: { ...user, password: '' }, token });
     }
@@ -257,17 +246,12 @@ async function handleApi(request, env, path, url) {
         return Response.json({ success: true });
     }
 
-    // 4. EXAM MANAGEMENT
     if (path === '/api/exam/save' && method === 'POST') {
-      const user = await requireAuth('teacher'); // Admins can act as teachers too if role logic allows, but simpler to enforce teacher
+      const user = await requireAuth('teacher'); 
       const { id, title, teacher_id, settings } = await request.json();
-      
-      // Strict Check: Ensure user is modifying their own exam (or is admin)
       if (user.role !== 'super_admin' && parseInt(teacher_id) !== user.id) return Response.json({error:"Unauthorized"}, {status:403});
-
       let examId = id;
       let link_id = null;
-
       if(examId) {
           await env.DB.prepare("UPDATE exams SET title = ?, settings = ? WHERE id = ?")
             .bind(title, JSON.stringify(settings), examId).run();
@@ -284,8 +268,6 @@ async function handleApi(request, env, path, url) {
     if (path === '/api/exam/delete' && method === 'POST') {
         const user = await requireAuth('teacher');
         const { id } = await request.json();
-        
-        // Security check: does exam belong to user?
         const exam = await env.DB.prepare("SELECT teacher_id FROM exams WHERE id = ?").bind(id).first();
         if(exam && (user.role === 'super_admin' || exam.teacher_id === user.id)) {
             await env.DB.batch([
@@ -301,7 +283,6 @@ async function handleApi(request, env, path, url) {
     if (path === '/api/exam/toggle' && method === 'POST') {
         const user = await requireAuth('teacher');
         const { id, is_active } = await request.json();
-        // Security check ownership
         const exam = await env.DB.prepare("SELECT teacher_id FROM exams WHERE id = ?").bind(id).first();
         if(exam && (user.role === 'super_admin' || exam.teacher_id === user.id)) {
             await env.DB.prepare("UPDATE exams SET is_active = ? WHERE id = ?").bind(is_active ? 1 : 0, id).run();
@@ -314,16 +295,12 @@ async function handleApi(request, env, path, url) {
       const user = await requireAuth('teacher');
       const formData = await request.formData();
       const exam_id = formData.get('exam_id');
-      
-      // Verify ownership of exam before adding question
       const exam = await env.DB.prepare("SELECT teacher_id FROM exams WHERE id = ?").bind(exam_id).first();
       if(!exam || (user.role !== 'super_admin' && exam.teacher_id !== user.id)) return Response.json({error:"Unauthorized"},{status:403});
-
       const text = formData.get('text');
       const choices = formData.get('choices');
       const image = formData.get('image'); 
       const existing_image_key = formData.get('existing_image_key');
-
       let image_key = null;
       if (image && image.size > 0) {
         image_key = crypto.randomUUID();
@@ -331,7 +308,6 @@ async function handleApi(request, env, path, url) {
       } else if (existing_image_key && existing_image_key !== 'null' && existing_image_key !== 'undefined') {
         image_key = existing_image_key;
       }
-
       await env.DB.prepare("INSERT INTO questions (exam_id, text, image_key, choices) VALUES (?, ?, ?, ?)")
         .bind(exam_id, text, image_key, choices).run();
       return Response.json({ success: true });
@@ -340,9 +316,7 @@ async function handleApi(request, env, path, url) {
     if (path === '/api/teacher/exams' && method === 'GET') {
       const user = await requireAuth('teacher');
       const teacherId = url.searchParams.get('teacher_id');
-      // Users can only see their own exams unless super_admin
       if (user.role !== 'super_admin' && parseInt(teacherId) !== user.id) return Response.json({error: "Unauthorized"}, {status: 403});
-
       try {
           const exams = await env.DB.prepare("SELECT * FROM exams WHERE teacher_id = ? ORDER BY created_at DESC").bind(teacherId).all();
           return Response.json(exams.results);
@@ -352,21 +326,17 @@ async function handleApi(request, env, path, url) {
     }
 
     if (path === '/api/teacher/exam-details' && method === 'GET') {
-        await requireAuth('teacher'); // Just need to be logged in
+        await requireAuth('teacher'); 
         const examId = url.searchParams.get('id');
         const exam = await env.DB.prepare("SELECT * FROM exams WHERE id = ?").bind(examId).first();
         const questions = await env.DB.prepare("SELECT * FROM questions WHERE exam_id = ?").bind(examId).all();
-        // Don't send isCorrect flags if we wanted to be super secure here too, but this is editor mode, so teacher needs them.
         return Response.json({ exam, questions: questions.results });
     }
 
-    // 5. STUDENT PORTAL (Public facing)
     if (path === '/api/student/portal-history' && method === 'POST') {
         const { school_id } = await request.json();
         const student = await env.DB.prepare("SELECT * FROM students WHERE school_id = ?").bind(school_id).first();
-        
         if(!student) return Response.json({ found: false });
-
         const history = await env.DB.prepare(`
             SELECT a.*, e.title, e.id as exam_id
             FROM attempts a 
@@ -374,14 +344,12 @@ async function handleApi(request, env, path, url) {
             WHERE a.student_db_id = ? 
             ORDER BY a.timestamp DESC
         `).bind(student.id).all();
-
         return Response.json({ found: true, student, history: history.results });
     }
 
     if (path === '/api/student/identify' && method === 'POST') {
         const { school_id } = await request.json();
         const student = await env.DB.prepare("SELECT * FROM students WHERE school_id = ?").bind(school_id).first();
-        
         if(student) {
             const stats = await env.DB.prepare(`
                 SELECT COUNT(*) as total_exams, AVG(CAST(score AS FLOAT)/CAST(total AS FLOAT))*100 as avg_score 
@@ -392,26 +360,20 @@ async function handleApi(request, env, path, url) {
         return Response.json({ found: false });
     }
 
-    // 6. EXAM DATA (Public facing)
     if (path === '/api/exam/get' && method === 'GET') {
       const link_id = url.searchParams.get('link_id');
       const exam = await env.DB.prepare("SELECT * FROM exams WHERE link_id = ?").bind(link_id).first();
       if(!exam) return Response.json({ error: "Exam not found" }, { status: 404 });
-      
       const questions = await env.DB.prepare("SELECT * FROM questions WHERE exam_id = ?").bind(exam.id).all();
-      
-      // SECURITY: Sanitize questions for student (remove isCorrect flag)
       const sanitizedQuestions = questions.results.map(q => ({
           ...q,
-          choices: JSON.stringify(JSON.parse(q.choices).map(c => ({ id: c.id, text: c.text }))) // Strip isCorrect
+          choices: JSON.stringify(JSON.parse(q.choices).map(c => ({ id: c.id, text: c.text }))) 
       }));
-
       let config = [];
       try {
           const c = await env.DB.prepare("SELECT * FROM school_config").all();
           config = c.results;
       } catch(e) {}
-      
       return Response.json({ exam, questions: sanitizedQuestions, config });
     }
     
@@ -419,33 +381,26 @@ async function handleApi(request, env, path, url) {
         const { exam_id, school_id } = await request.json();
         const student = await env.DB.prepare("SELECT id FROM students WHERE school_id = ?").bind(school_id).first();
         if(!student) return Response.json({ canTake: true });
-        
         const attempt = await env.DB.prepare("SELECT id FROM attempts WHERE exam_id = ? AND student_db_id = ?").bind(exam_id, student.id).first();
         return Response.json({ canTake: !attempt });
     }
 
-    // SECURITY: Server-Side Grading Implementation
     if (path === '/api/submit' && method === 'POST') {
-      const { link_id, student, answers } = await request.json(); // Removed 'score' input
-      
+      const { link_id, student, answers } = await request.json(); 
       const exam = await env.DB.prepare("SELECT id FROM exams WHERE link_id = ?").bind(link_id).first();
       if(!exam) return Response.json({error: "Invalid Exam"});
 
-      // Calculate Score on Server
       const questions = await env.DB.prepare("SELECT id, choices, text FROM questions WHERE exam_id = ?").bind(exam.id).all();
       let serverScore = 0;
       let total = questions.results.length;
       let detailedResults = [];
 
       questions.results.forEach(q => {
-          const studentAnswerId = answers[q.id]; // Access by question ID key
+          const studentAnswerId = answers[q.id]; 
           const dbChoices = JSON.parse(q.choices);
           const correctChoice = dbChoices.find(c => c.isCorrect);
-          
           const isCorrect = correctChoice && studentAnswerId === correctChoice.id;
           if (isCorrect) serverScore++;
-
-          // Build detail object for storage
           const studentChoice = dbChoices.find(c => c.id === studentAnswerId);
           detailedResults.push({
               qId: q.id,
@@ -457,18 +412,14 @@ async function handleApi(request, env, path, url) {
       });
 
       let studentRecord = await env.DB.prepare("SELECT id FROM students WHERE school_id = ?").bind(student.school_id).first();
-      
-      // Upsert Student
       if (!studentRecord) {
         try {
             const res = await env.DB.prepare("INSERT INTO students (school_id, name, roll, class, section) VALUES (?, ?, ?, ?, ?)")
             .bind(student.school_id, student.name, student.roll, student.class || null, student.section || null).run();
             studentRecord = { id: res.meta.last_row_id };
         } catch (e) {
-            // Auto-migration fallback
             try { await env.DB.prepare("ALTER TABLE students ADD COLUMN class TEXT").run(); } catch(err) {}
             try { await env.DB.prepare("ALTER TABLE students ADD COLUMN section TEXT").run(); } catch(err) {}
-            
             const res = await env.DB.prepare("INSERT INTO students (school_id, name, roll, class, section) VALUES (?, ?, ?, ?, ?)")
             .bind(student.school_id, student.name, student.roll, student.class || null, student.section || null).run();
             studentRecord = { id: res.meta.last_row_id };
@@ -478,7 +429,6 @@ async function handleApi(request, env, path, url) {
             await env.DB.prepare("UPDATE students SET name = ?, roll = ?, class = ?, section = ? WHERE id = ?")
                 .bind(student.name, student.roll, student.class || null, student.section || null, studentRecord.id).run();
         } catch (e) {
-             // Update fallback
              await env.DB.prepare("UPDATE students SET name = ?, roll = ?, class = ?, section = ? WHERE id = ?")
                 .bind(student.name, student.roll, student.class || null, student.section || null, studentRecord.id).run();
         }
@@ -487,11 +437,9 @@ async function handleApi(request, env, path, url) {
       await env.DB.prepare("INSERT INTO attempts (exam_id, student_db_id, score, total, details) VALUES (?, ?, ?, ?, ?)")
         .bind(exam.id, studentRecord.id, serverScore, total, JSON.stringify(detailedResults)).run();
 
-      // Return calculated results to frontend
       return Response.json({ success: true, score: serverScore, total, details: detailedResults });
     }
 
-    // 7. ANALYTICS
     if (path === '/api/analytics/exam' && method === 'GET') {
       await requireAuth('teacher');
       const examId = url.searchParams.get('exam_id');
@@ -526,7 +474,6 @@ async function handleApi(request, env, path, url) {
     }
 
   } catch (err) {
-    // If it's an auth error, return 401, else 500
     if (err.message === "Unauthorized" || err.message === "Forbidden") {
         return Response.json({ error: err.message }, { status: 401 });
     }
@@ -535,7 +482,6 @@ async function handleApi(request, env, path, url) {
   return new Response("Not Found", { status: 404 });
 }
 
-// --- FRONTEND ---
 function getHtml() {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -571,15 +517,21 @@ function getHtml() {
         // --- AUTH HELPER ---
         const apiFetch = async (url, options = {}) => {
             const user = JSON.parse(localStorage.getItem('mc_user') || '{}');
+            
+            // FIX: Default to JSON, but allow browser to override for FormData
             const headers = { 
                 'Content-Type': 'application/json',
                 ...(user.token ? { 'Authorization': 'Bearer ' + user.token } : {}),
                 ...options.headers 
             };
+
+            // FIX: If sending files/form-data, remove Content-Type so browser sets boundary correctly
             if (options.body instanceof FormData) {
                 delete headers['Content-Type'];
             }
+
             const res = await fetch(url, { ...options, headers });
+            
             if (res.status === 401) {
                 localStorage.removeItem('mc_user');
                 window.location.reload();
@@ -606,7 +558,6 @@ function getHtml() {
             }
         }
 
-        // --- ICONS ---
         const Icons = {
             Logo: () => <svg className="w-8 h-8 text-orange-500" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zm0 9l2.5-1.25L12 8.5l-2.5 1.25L12 11zm0 2.5l-5-2.5-5 2.5L12 22l10-8.5-5-2.5-5 2.5z"/></svg>,
             Home: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>,
@@ -647,142 +598,8 @@ function getHtml() {
         );
 
         // --- COMPONENTS ---
-        
-        // FIX: Moved StudentPortal above StudentExamApp to fix ReferenceError
-        function StudentPortal({ onBack }) {
-             const [id, setId] = useState('');
-             const [data, setData] = useState(null);
-             const [selectedExam, setSelectedExam] = useState(null); 
-             const [viewDetail, setViewDetail] = useState(null); 
-             
-             const refreshData = async () => {
-                 if(!localStorage.getItem('student_id')) return;
-                 const res = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: localStorage.getItem('student_id') }) }).then(r => r.json()); 
-                 if(res.found) setData(res);
-             };
-
-             const login = async (e) => { 
-                 e.preventDefault(); 
-                 const res = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: id }) }).then(r => r.json()); 
-                 if(res.found) { setData(res); localStorage.setItem('student_id', id); } 
-                 else alert("ID not found!"); 
-            };
-             
-             useEffect(() => { 
-                 const saved = localStorage.getItem('student_id'); 
-                 if(saved && !data) {
-                     fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: saved }) }).then(r => r.json()).then(r => r.found && setData(r)); 
-                 }
-            }, []);
-
-             if(!data) return (
-                <div className="min-h-screen bg-orange-50 flex items-center justify-center p-6">
-                    <div className="bg-white w-full max-w-sm p-8 rounded-3xl shadow-xl text-center anim-pop relative">
-                        <button onClick={onBack} className="absolute top-6 left-6 text-gray-400 font-bold text-sm">Back</button>
-                        <div className="mb-6 mx-auto w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center text-orange-500"><Icons.Logo /></div>
-                        <h1 className="text-2xl font-bold text-slate-800 mb-2">Student Hub</h1>
-                        <form onSubmit={login}>
-                            <input value={id} onChange={e=>setId(e.target.value)} className="w-full bg-gray-100 p-4 rounded-2xl font-bold text-center text-lg outline-none focus:ring-2 focus:ring-orange-400 mb-4" placeholder="Enter School ID" />
-                            <button className="w-full bg-orange-500 text-white font-bold py-4 rounded-2xl btn-bounce shadow-lg shadow-orange-200">Enter</button>
-                        </form>
-                    </div>
-                </div>
-            );
-
-             if(viewDetail) return <ResultDetailView result={{...viewDetail, name: data.student.name, roll: data.student.roll}} onClose={()=>setViewDetail(null)} />;
-
-             const examGroups = data ? Object.values(data.history.reduce((acc, curr) => {
-                 if(!acc[curr.exam_id]) acc[curr.exam_id] = { ...curr, attempts: [] };
-                 acc[curr.exam_id].attempts.push(curr);
-                 return acc;
-             }, {})) : [];
-
-             if(selectedExam) {
-                 return (
-                    <div className="min-h-screen bg-orange-50 pb-safe p-4">
-                        <div className="max-w-lg mx-auto">
-                            <button onClick={()=>setSelectedExam(null)} className="flex items-center gap-2 text-gray-500 font-bold mb-4"><Icons.Back/> Back to Dashboard</button>
-                            <h2 className="text-2xl font-bold text-slate-800 mb-2">{selectedExam.title}</h2>
-                            <p className="text-gray-500 text-sm font-bold mb-6">Your Performance History</p>
-                            
-                            <div className="space-y-3">
-                                {selectedExam.attempts.map((h, i) => (
-                                    <div key={h.id} onClick={()=>setViewDetail(h)} className="bg-white p-5 rounded-2xl shadow-sm border border-orange-50 flex justify-between items-center cursor-pointer active:scale-95 transition">
-                                        <div>
-                                            <h4 className="font-bold text-slate-800 text-sm">Attempt #{selectedExam.attempts.length - i}</h4>
-                                            <p className="text-xs text-gray-400 font-bold">{new Date(h.timestamp).toLocaleString()}</p>
-                                        </div>
-                                        <div className={\`text-lg font-black \${ (h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400' }\`}>{h.score}/{h.total}</div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                 );
-             }
-
-             return (
-                <div className="min-h-screen bg-orange-50 pb-safe">
-                    <div className="bg-orange-500 p-8 pb-16 rounded-b-[40px] text-white shadow-lg relative overflow-hidden">
-                        <div className="relative z-10">
-                            <div className="flex justify-between items-center mb-6">
-                                <div className="flex gap-2">
-                                    <button onClick={()=>{localStorage.removeItem('student_id'); setData(null);}} className="bg-white/20 p-2 rounded-xl backdrop-blur-sm text-sm font-bold flex items-center gap-2 hover:bg-white/30 transition"><Icons.Logout/> Logout</button>
-                                    <button onClick={refreshData} className="bg-white/20 p-2 rounded-xl backdrop-blur-sm text-white hover:bg-white/30 transition"><Icons.Refresh/></button>
-                                </div>
-                                <span className="font-bold opacity-70">My Class</span>
-                            </div>
-                            <h1 className="text-3xl font-bold mb-1 truncate">Hi, {data.student.name.split(' ')[0]}!</h1>
-                            <p className="opacity-80 font-bold text-sm tracking-wide">{data.student.school_id} • Class {data.student.class || 'N/A'}</p>
-                        </div>
-                    </div>
-                    <div className="px-6 -mt-10 relative z-20 max-w-lg mx-auto space-y-6">
-                        <div className="bg-white p-6 rounded-3xl shadow-lg flex justify-around text-center">
-                            <div>
-                                <div className="text-3xl font-black text-slate-800">{examGroups.length}</div>
-                                <div className="text-xs font-bold text-gray-400 uppercase">Exams Taken</div>
-                            </div>
-                            <div className="w-px bg-gray-100"></div>
-                            <div>
-                                <div className="text-3xl font-black text-green-500">{Math.round(data.history.reduce((a,b)=>a+(b.score/b.total),0)/data.history.length * 100 || 0)}%</div>
-                                <div className="text-xs font-bold text-gray-400 uppercase">Avg Score</div>
-                            </div>
-                        </div>
-                        <div className="space-y-4 pb-10">
-                            <div className="flex justify-between items-center px-2">
-                                <h3 className="font-bold text-slate-400 text-xs uppercase">Your Exams</h3>
-                                <button onClick={refreshData} className="text-orange-500 text-xs font-bold">Refresh</button>
-                            </div>
-                            {examGroups.map(group => (
-                                <div key={group.exam_id} onClick={()=>setSelectedExam(group)} className="bg-white p-5 rounded-2xl shadow-sm border border-orange-50 flex justify-between items-center cursor-pointer active:scale-95 transition">
-                                    <div>
-                                        <h4 className="font-bold text-slate-800">{group.title}</h4>
-                                        <p className="text-xs text-indigo-500 font-bold">{group.attempts.length} Attempts</p>
-                                    </div>
-                                    <Icons.Back className="rotate-180 text-gray-300 w-5 h-5"/>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            );
-        }
-
-        // ... [Setup, Login, DashboardLayout, SchoolConfigView, AdminView, TeacherView, StudentList, ExamStats, ExamEditor components remain below as they were] ...
-        
-        // FIX: Moved ResultDetailView outside the other component or check where it was. It's actually fine as a separate function.
-        // It was already defined separately above.
 
         function ResultDetailView({ result, onClose }) {
-            // FIX: Ensure 'details' is parsed safely if it's a string, or used directly if it's an object
-            // The API returns 'details' as an object array in JSON, but D1 stores it as a string.
-            // When coming from 'api/submit', it might be an object already. When coming from history, it might be a string.
-            // Let's safe parse it.
-            let details = [];
-            try {
-                details = typeof result.details === 'string' ? JSON.parse(result.details) : result.details;
-            } catch(e) { details = []; }
-
             return (
                 <div className="fixed inset-0 bg-white z-[60] overflow-y-auto anim-enter">
                     <div className="sticky top-0 bg-white/95 backdrop-blur border-b border-orange-100 p-4 flex justify-between items-center shadow-sm">
@@ -799,7 +616,7 @@ function getHtml() {
                         </div>
 
                         <div className="space-y-4">
-                            {details.map((d,i)=>(
+                            {JSON.parse(result.details || '[]').map((d,i)=>(
                                 <div key={i} className={\`p-4 rounded-2xl border \${d.isCorrect?'bg-green-50/50 border-green-200':'bg-red-50/50 border-red-200'}\`}>
                                     <div className="font-bold text-gray-800 mb-2">Q{i+1}: {d.qText}</div>
                                     <div className="text-sm space-y-1">
@@ -821,9 +638,6 @@ function getHtml() {
                 </div>
             );
         }
-
-        // ... [Include Setup, Login, DashboardLayout, SchoolConfigView, AdminView, TeacherView, StudentList, ExamStats, ExamEditor from previous stable version] ...
-        // To be absolutely sure, I will re-paste them below so the file is complete and not truncated.
 
         function Setup({ onComplete, addToast }) { 
              const handle = async (e) => { 
@@ -1232,7 +1046,10 @@ function getHtml() {
                     <div className="grid gap-3">
                         {filtered.map(s=><div key={s.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
                             <div>
-                                <div className="font-bold">{s.name}</div><div className="text-xs text-gray-400">{s.school_id}</div><div className="text-xs font-bold text-indigo-500 mt-1">{s.class ? \`Class \${s.class}\` : 'No Class'} {s.section && \` - \${s.section}\`}</div></div>
+                                <div className="font-bold">{s.name} <span className="text-gray-400 font-normal text-xs ml-1">(Roll: {s.roll || 'N/A'})</span></div>
+                                <div className="text-xs text-gray-400">{s.school_id}</div>
+                                <div className="text-xs font-bold text-indigo-500 mt-1">{s.class ? \`Class \${s.class}\` : 'No Class'} {s.section && \` - \${s.section}\`}</div>
+                            </div>
                             <div className="font-bold text-green-500">{Math.round(s.avg_score||0)}%</div>
                         </div>)}
                         {filtered.length === 0 && <div className="text-center text-gray-400 py-10">No students found</div>}
@@ -1455,6 +1272,260 @@ function getHtml() {
                             </div>
                         </div>
                     )}
+                </div>
+            );
+        }
+
+        // 5. STUDENT EXAM APP (With Dropdowns & Validation)
+        function StudentExamApp({ linkId }) {
+            const [mode, setMode] = useState('identify'); 
+            const [student, setStudent] = useState({ name: '', school_id: '', roll: '', class: '', section: '' }); 
+            const [exam, setExam] = useState(null); 
+            const [config, setConfig] = useState({ classes: [], sections: [] });
+            
+            // Game State
+            const [qIdx, setQIdx] = useState(0); 
+            const [score, setScore] = useState(0); 
+            const [answers, setAnswers] = useState({});
+            const [resultDetails, setResultDetails] = useState(null);
+            const [examHistory, setExamHistory] = useState([]);
+            const [qTime, setQTime] = useState(0);
+            const [totalTime, setTotalTime] = useState(0);
+            const [showReview, setShowReview] = useState(false); // New state for review toggle
+
+            useEffect(() => { 
+                // FIX: Escaped backticks for fetching exams to prevent build error
+                fetch(\`/api/exam/get?link_id=\${linkId}\`).then(r=>r.json()).then(d => {
+                    if(!d.exam?.is_active) return alert("Exam Closed");
+                    setExam(d);
+                    const classes = [...new Set(d.config.filter(c=>c.type==='class').map(c=>c.value))];
+                    const sections = [...new Set(d.config.filter(c=>c.type==='section').map(c=>c.value))];
+                    setConfig({ classes, sections });
+                }); 
+            }, [linkId]);
+
+            // Timer Tick
+            useEffect(() => {
+                if(mode !== 'game' || !exam) return;
+                const settings = JSON.parse(exam.exam.settings || '{}');
+                const int = setInterval(() => {
+                    if(settings.timerMode === 'question') {
+                        if(qTime > 0) setQTime(t => t - 1);
+                        else next(); 
+                    } else if(settings.timerMode === 'total') {
+                        if(totalTime > 0) setTotalTime(t => t - 1);
+                        else finish(); 
+                    }
+                }, 1000);
+                return () => clearInterval(int);
+            }, [mode, qTime, totalTime, exam]);
+
+            const next = () => { 
+                if(qIdx < exam.questions.length - 1) { 
+                    setQIdx(qIdx+1); 
+                    const s = JSON.parse(exam.exam.settings || '{}');
+                    if(s.timerMode === 'question') setQTime(s.timerValue || 30);
+                } else finish(); 
+            };
+
+            const finish = async () => {
+                const finalAnswers = {};
+                exam.questions.forEach(q => {
+                    finalAnswers[q.id] = answers[q.id];
+                });
+
+                localStorage.setItem('student_id', student.school_id);
+
+                // Security: Send raw answers to backend, let backend calculate score
+                const res = await fetch('/api/submit', { 
+                    method: 'POST', 
+                    body: JSON.stringify({ 
+                        link_id: linkId, 
+                        student, 
+                        answers: finalAnswers // Only sending IDs of selected choices
+                    }) 
+                });
+                
+                if(!res.ok) return alert("Error Saving Result! Please try again or contact teacher.");
+                
+                const data = await res.json();
+                
+                // Update local state with server results
+                setScore(data.score);
+                setResultDetails(data.details);
+                
+                if((data.score/data.total) > 0.6) confetti();
+
+                const histRes = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: student.school_id }) }).then(r => r.json());
+                if (histRes.found) setExamHistory(histRes.history.filter(h => h.exam_id === exam.exam.id));
+                setMode('summary');
+            };
+
+            const startGame = () => {
+                 // FIX: Prevent crash if exam has no questions
+                 if (!exam.questions || exam.questions.length === 0) {
+                     return alert("This exam has no questions added yet. Please contact the teacher.");
+                 }
+                 setMode('game'); 
+                 const settings = JSON.parse(exam.exam.settings || '{}');
+                 if(settings.timerMode==='total') setTotalTime((settings.timerValue||10)*60); 
+                 if(settings.timerMode==='question') setQTime(settings.timerValue||30);
+            };
+
+            if(!exam) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400">Loading Exam...</div>;
+            const settings = JSON.parse(exam.exam.settings || '{}');
+
+            if(mode === 'dashboard') return <StudentPortal onBack={() => setMode('identify')} />;
+
+            if(mode === 'identify') return (
+                <div className="min-h-screen bg-indigo-500 flex items-center justify-center p-6">
+                    <div className="bg-white w-full max-w-sm p-8 rounded-3xl text-center anim-pop shadow-2xl">
+                        <h1 className="text-2xl font-bold mb-4">Join Class</h1>
+                        <input className="w-full bg-gray-100 p-4 rounded-xl font-bold mb-3 outline-none" placeholder="School ID" value={student.school_id} onChange={e=>setStudent({...student, school_id:e.target.value})} />
+                        <button onClick={async()=>{
+                            if(!student.school_id) return alert("Enter ID");
+                            const r = await fetch('/api/student/identify', {method:'POST', body:JSON.stringify({school_id:student.school_id})}).then(x=>x.json());
+                            if(r.found) { 
+                                // Check if profile incomplete
+                                if(!r.student.class || !r.student.section) {
+                                    setStudent({...r.student, ...student}); 
+                                    setMode('update_profile'); // Force update
+                                } else {
+                                    setStudent({...r.student, ...student}); 
+                                    startGame(); 
+                                }
+                            } else setMode('register');
+                        }} className="w-full bg-black text-white p-4 rounded-xl font-bold">Next</button>
+                        
+                        {/* FIX: Added Dashboard Login Option */}
+                        <div className="mt-6 border-t border-gray-100 pt-4">
+                            <p className="text-xs text-gray-400 font-bold mb-2">Want to check results?</p>
+                            <button onClick={() => setMode('dashboard')} className="text-indigo-500 font-bold text-sm hover:underline">Login to Student Dashboard</button>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            if(mode === 'register' || mode === 'update_profile') return (
+                <div className="min-h-screen bg-indigo-500 flex items-center justify-center p-6">
+                    <div className="bg-white w-full max-w-sm p-8 rounded-3xl anim-pop">
+                        <h1 className="text-xl font-bold mb-4">{mode === 'register' ? 'New Student' : 'Complete Profile'}</h1>
+                        <p className="text-xs text-gray-400 mb-4 font-bold">Please fill in your details to continue.</p>
+                        
+                        {(mode === 'register' || !student.name || !student.roll) && (
+                            <>
+                                <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Full Name" value={student.name || ''} onChange={e=>setStudent({...student, name:e.target.value})} />
+                                <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Roll No" value={student.roll || ''} onChange={e=>setStudent({...student, roll:e.target.value})} />
+                            </>
+                        )}
+
+                        <div className="flex gap-2 mb-4">
+                            <select value={student.class || ''} onChange={e=>setStudent({...student, class:e.target.value})} className="w-full bg-gray-100 p-3 rounded-xl font-bold text-sm outline-none">
+                                <option value="">Select Class</option>
+                                {config.classes.map(c=><option key={c} value={c}>{c}</option>)}
+                            </select>
+                            <select value={student.section || ''} onChange={e=>setStudent({...student, section:e.target.value})} className="w-full bg-gray-100 p-3 rounded-xl font-bold text-sm outline-none">
+                                <option value="">Section</option>
+                                {config.sections.map(s=><option key={s} value={s}>{s}</option>)}
+                            </select>
+                        </div>
+                        
+                        <button onClick={()=>{ 
+                            if(!student.class || !student.section || (mode === 'register' && (!student.name || !student.roll))) return alert("Please fill all fields");
+                            startGame(); 
+                        }} className="w-full bg-indigo-600 text-white p-3 rounded-xl font-bold">Start Exam</button>
+                    </div>
+                </div>
+            );
+
+            if(mode === 'game') {
+                // FIX: Add safety check to ensure question exists before rendering
+                const currentQuestion = exam.questions[qIdx];
+                if (!currentQuestion) {
+                    return (
+                        <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-6 text-center">
+                            <div>
+                                <h1 className="text-xl font-bold text-red-400 mb-2">Error Loading Question</h1>
+                                <p className="text-gray-400 mb-4">The question data seems to be missing or invalid.</p>
+                                <button onClick={() => window.location.reload()} className="bg-white text-slate-900 px-6 py-2 rounded-xl font-bold">Refresh Page</button>
+                            </div>
+                        </div>
+                    );
+                }
+
+                return (
+                    <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-6">
+                        <div className="w-full max-w-md flex justify-between items-center mb-8">
+                            <div className="font-bold text-slate-500 uppercase text-xs tracking-widest">Question {qIdx+1}/{exam.questions.length}</div>
+                            <div className={\`text-xl font-mono font-bold \${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}\`}>
+                                {settings.timerMode === 'question' ? qTime : Math.floor(totalTime/60) + ':' + (totalTime%60).toString().padStart(2,'0')}
+                            </div>
+                        </div>
+                        <div className="w-full max-w-md flex-1 flex flex-col justify-center">
+                            <div className="bg-white text-slate-900 p-6 rounded-3xl mb-6 text-center shadow-2xl">
+                                {currentQuestion.image_key && <img src={\`/img/\${currentQuestion.image_key}\`} className="h-40 mx-auto object-contain mb-4" />}
+                                <h2 className="text-xl font-bold">{currentQuestion.text}</h2>
+                            </div>
+                            <div className="grid grid-cols-1 gap-3">
+                                {JSON.parse(currentQuestion.choices).map(c => (
+                                    <button key={c.id} onClick={()=>{ setAnswers({...answers, [currentQuestion.id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }} className={\`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 \${answers[currentQuestion.id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}\`}>
+                                        {c.text}
+                                    </button>
+                                ))}
+                            </div>
+                            {settings.timerMode === 'total' && <div className="mt-8 flex justify-end"><button onClick={next} className="px-6 py-2 bg-white text-black rounded-lg font-bold">Next</button></div>}
+                        </div>
+                    </div>
+                );
+            }
+
+            if(mode === 'summary') return (
+                <div className="min-h-screen bg-slate-900 text-white p-6 overflow-y-auto">
+                    <div className="max-w-2xl mx-auto space-y-6 pb-20">
+                        {/* Score Card */}
+                        <div className="bg-slate-800 p-8 rounded-3xl text-center border border-slate-700 shadow-2xl">
+                            <h2 className="text-3xl font-black mb-2 text-white">Exam Complete!</h2>
+                            {/* Stats Grid */}
+                            <div className="grid grid-cols-3 gap-3 my-6">
+                                <div className="bg-green-500/10 p-3 rounded-2xl border border-green-500/20">
+                                    <div className="text-2xl md:text-3xl font-black text-green-400">{score}</div>
+                                    <div className="text-[10px] md:text-xs font-bold uppercase text-green-200/50">Correct</div>
+                                </div>
+                                <div className="bg-red-500/10 p-3 rounded-2xl border border-red-500/20">
+                                    <div className="text-2xl md:text-3xl font-black text-red-400">{exam.questions.length - score}</div>
+                                    <div className="text-[10px] md:text-xs font-bold uppercase text-red-200/50">Wrong</div>
+                                </div>
+                                <div className="bg-blue-500/10 p-3 rounded-2xl border border-blue-500/20">
+                                    <div className="text-2xl md:text-3xl font-black text-blue-400">{Math.round((score/exam.questions.length)*100)}%</div>
+                                    <div className="text-[10px] md:text-xs font-bold uppercase text-blue-200/50">Score</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="space-y-3">
+                             <button onClick={() => setShowReview(!showReview)} className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl font-bold flex justify-between items-center hover:bg-slate-700 transition">
+                                <span>See Correct Answers</span>
+                                {/* FIX: Escaped backticks (\`) and escaped dollar sign (\$) for the template literal below to prevent build error */}
+                                <span className={\`transform transition \${showReview ? 'rotate-180' : ''}\`}>▼</span>
+                            </button>
+                            
+                            {/* FIX: Direct switch to Dashboard Mode */}
+                            <button onClick={() => setMode('dashboard')} className="w-full bg-orange-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-orange-500/20 btn-bounce flex items-center justify-center gap-2">
+                                <Icons.Users /> See Past Results
+                            </button>
+                        </div>
+
+                        {/* Detailed Review (Collapsible) */}
+                        {showReview && (
+                            <div className="space-y-4 anim-enter">
+                                <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
+                                {resultDetails.map((q, i) => (<div key={i} className={\`p-6 rounded-2xl border \${q.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}><div className="font-bold text-lg mb-3">Q{i+1}. {q.qText}</div><div className="space-y-2">{q.choices && q.choices.map(c => { const isSelected = c.id === q.selected; const isCorrectChoice = c.id === q.correct; let style = "bg-slate-800 border-slate-700 text-slate-400"; if (isCorrectChoice) style = "bg-green-500 text-white border-green-500"; else if (isSelected && !q.isCorrect) style = "bg-red-500 text-white border-red-500"; return (<div key={c.id} className={\`p-3 rounded-xl border flex justify-between items-center \${style}\`}> <span className="font-bold">{c.text}</span> {isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">You</span>} {isCorrectChoice && !isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">Correct</span>} </div>); })}</div></div>))}
+                            </div>
+                        )}
+
+                        {settings.allowRetakes && (<div className="w-full text-center mt-8"><button onClick={() => window.location.reload()} className="text-indigo-400 font-bold hover:text-indigo-300">Retake Exam</button></div>)}
+                    </div>
                 </div>
             );
         }
