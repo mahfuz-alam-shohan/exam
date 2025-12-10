@@ -2,7 +2,7 @@
  * Cloudflare Worker - My Class (SaaS Masterclass)
  * - Security: Password Hashing, JWT, Server-Side Grading, Secure Headers
  * - Features: Admin/Teacher/Student portals, Analytics, R2 Images
- * - Fixes: Solved blank screen (SyntaxErrors), fixed Student Summary View variable references
+ * - Fixes: Escaped backticks in StudentExamApp fetch URL to fix build error
  */
 
 const JWT_SECRET = "CHANGE_THIS_SECRET_IN_PROD_TO_SOMETHING_RANDOM_AND_LONG"; 
@@ -589,7 +589,6 @@ function getHtml() {
         // --- COMPONENTS ---
 
         function ResultDetailView({ result, onClose }) {
-            const details = Array.isArray(result.details) ? result.details : JSON.parse(result.details || '[]');
             return (
                 <div className="fixed inset-0 bg-white z-[60] overflow-y-auto anim-enter">
                     <div className="sticky top-0 bg-white/95 backdrop-blur border-b border-orange-100 p-4 flex justify-between items-center shadow-sm">
@@ -606,7 +605,7 @@ function getHtml() {
                         </div>
 
                         <div className="space-y-4">
-                            {details.map((d,i)=>(
+                            {JSON.parse(result.details || '[]').map((d,i)=>(
                                 <div key={i} className={\`p-4 rounded-2xl border \${d.isCorrect?'bg-green-50/50 border-green-200':'bg-red-50/50 border-red-200'}\`}>
                                     <div className="font-bold text-gray-800 mb-2">Q{i+1}: {d.qText}</div>
                                     <div className="text-sm space-y-1">
@@ -1230,49 +1229,68 @@ function getHtml() {
 
             return (
                 <div className="min-h-screen bg-white md:bg-gray-50 flex flex-col">
+                    <div className="sticky top-0 bg-white border-b border-orange-100 p-4 flex justify-between items-center z-40">
+                        <button onClick={onCancel} disabled={submitting} className="text-gray-400 font-bold"><Icons.Back /></button>
+                        <h2 className="font-bold text-lg">{examId ? 'Edit Exam' : 'New Class Exam'}</h2>
+                        <button onClick={publish} disabled={submitting} className="text-orange-600 font-bold text-sm flex items-center gap-2">{submitting && <Icons.Loading />}{submitting ? 'Saving...' : 'Save'}</button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-4 max-w-2xl mx-auto w-full">
+                        <div className="bg-white md:rounded-3xl md:p-6 md:shadow-sm space-y-6">
+                            <div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Title</label><input value={meta.title} onChange={e => setMeta({ ...meta, title: e.target.value })} className="w-full text-2xl font-bold border-b-2 border-gray-100 focus:border-orange-400 outline-none placeholder-gray-200" placeholder="e.g. Science Quiz" /></div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="bg-gray-50 p-3 rounded-2xl"><label className="text-xs font-bold text-gray-400 uppercase">Timer</label><div className="flex gap-2 mt-1"><select value={meta.timerMode} onChange={e => setMeta({ ...meta, timerMode: e.target.value })} className="bg-transparent font-bold text-sm outline-none"><option value="question">Per Q</option><option value="total">Total</option></select><input type="number" value={meta.timerValue} onChange={e => setMeta({ ...meta, timerValue: e.target.value })} className="w-12 bg-white rounded-lg text-center font-bold text-sm" /></div></div>
+                                <div className="bg-gray-50 p-3 rounded-2xl flex items-center justify-between"><span className="text-xs font-bold text-gray-400 uppercase">Back Nav</span><Toggle checked={meta.allowBack} onChange={v => setMeta({ ...meta, allowBack: v })} /></div>
+                            </div>
+                            <div>
+                                <div className="flex gap-2 mb-4"><label className="flex items-center gap-2 bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-sm font-bold cursor-pointer hover:bg-indigo-100 transition"><Icons.Upload /> Import JSON<input type="file" className="hidden" accept=".json" onChange={handleJsonImport} /></label><button onClick={downloadTemplate} className="flex items-center gap-2 bg-gray-50 text-gray-500 px-4 py-2 rounded-xl text-sm font-bold hover:bg-gray-100 transition"><Icons.Download /> Example</button></div>
+                                <div className="space-y-3 mb-20">{qs.map((q, i) => (<div key={i} onClick={() => setActiveQ(q)} className="bg-white border border-gray-100 p-4 rounded-2xl shadow-sm flex items-center gap-4 active:scale-95 transition cursor-pointer"><span className="font-bold text-orange-400 bg-orange-50 w-8 h-8 flex items-center justify-center rounded-full text-xs">{i + 1}</span>{q.image_key && <Icons.Image />}<div className="flex-1 min-w-0"><p className="font-bold text-sm truncate">{q.text}</p><p className="text-xs text-gray-400">{q.choices.length} options</p></div><button onClick={(e) => { e.stopPropagation(); setQs(qs.filter(x => x !== q)); }} className="text-red-300"><Icons.Trash /></button></div>))}
+                                    <button onClick={() => setActiveQ({ text: '', choices: [{ id: 1, text: '', isCorrect: false }, { id: 2, text: '', isCorrect: false }], tempId: Date.now() })} className="w-full py-4 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 font-bold text-sm hover:border-orange-300 hover:text-orange-500 transition">+ Add Question</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {activeQ && (
+                        <div className="fixed inset-0 bg-white z-50 flex flex-col anim-enter">
+                            <div className="p-4 border-b flex justify-between items-center bg-gray-50"><button onClick={() => setActiveQ(null)} className="font-bold text-gray-500">Cancel</button><span className="font-bold">Edit Question</span><button onClick={() => saveQ(activeQ)} className="font-bold text-green-600 bg-green-50 px-4 py-1 rounded-lg">Done</button></div>
+                            <div className="flex-1 overflow-y-auto p-6 max-w-2xl mx-auto w-full">
+                                <textarea value={activeQ.text} onChange={e => setActiveQ({ ...activeQ, text: e.target.value })} className="w-full text-xl font-bold outline-none resize-none placeholder-gray-300 mb-6" placeholder="Type question here..." rows="3" autoFocus />
+                                <div className="mb-6"><label className="block w-full"><div className="w-full h-40 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400 cursor-pointer hover:bg-gray-100 relative overflow-hidden">{activeQ.image ? (activeQ.image instanceof File ? <img src={URL.createObjectURL(activeQ.image)} className="h-full w-full object-contain" /> : <div className="text-center"><img src="https://placehold.co/100x100?text=Existing" className="h-20 w-auto opacity-50 mx-auto" /><span className="text-xs font-bold text-green-500 block mt-2">Image Attached</span></div>) : activeQ.image_key ? (<div className="text-center"><img src={\`/img/\${activeQ.image_key}\`} className="h-32 object-contain mx-auto" /></div>) : (<><Icons.Image /><span className="text-xs font-bold mt-2">Add Photo</span></>)}
+                                {activeQ.image instanceof File && (<div className="absolute bottom-0 left-0 w-full bg-black/50 text-white text-xs p-2 text-center backdrop-blur-sm">{activeQ.image.name} ({(activeQ.image.size/1024).toFixed(1)} KB)</div>)}</div><input type="file" className="hidden" accept="image/*" onChange={e => {if(e.target.files[0]) { setActiveQ({ ...activeQ, image: e.target.files[0] }); }}} /></label>{(activeQ.image || activeQ.image_key) && (<button onClick={()=>setActiveQ({...activeQ, image: null, image_key: null})} className="text-red-500 text-xs font-bold mt-2 flex items-center gap-1 justify-center"><Icons.Trash/> Remove Image</button>)}</div>
+                                <div className="space-y-3">{activeQ.choices.map((c, i) => (<div key={c.id} className="flex items-center gap-3"><div onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => ({ ...x, isCorrect: x.id === c.id })) })} className={\`w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition \${c.isCorrect ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300'}\`}>{c.isCorrect && <span className="font-bold text-sm">✓</span>}</div><input value={c.text} onChange={e => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => x.id === c.id ? { ...x, text: e.target.value } : x) })} className="flex-1 bg-gray-50 p-3 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-orange-200" placeholder={\`Option \${i + 1}\`} /><button onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.filter(x => x.id !== c.id) })} className="text-gray-300 px-2">×</button></div>))}<button onClick={() => setActiveQ({ ...activeQ, choices: [...activeQ.choices, { id: Date.now(), text: '', isCorrect: false }] })} className="text-sm font-bold text-blue-500 mt-2 ml-11">+ Add Option</button></div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
         // 5. STUDENT EXAM APP (With Dropdowns & Validation)
         function StudentExamApp({ linkId }) {
             const [mode, setMode] = useState('identify'); 
             const [student, setStudent] = useState({ name: '', school_id: '', roll: '', class: '', section: '' }); 
-            const [exam, setExam] = useState(null);
-            const [error, setError] = useState(null); // FIX: Added error state
+            const [exam, setExam] = useState(null); 
             const [config, setConfig] = useState({ classes: [], sections: [] });
             
+            // Game State
             const [qIdx, setQIdx] = useState(0); 
             const [score, setScore] = useState(0); 
             const [answers, setAnswers] = useState({});
-            const [resultDetails, setResultDetails] = useState([]);
+            const [resultDetails, setResultDetails] = useState(null);
             const [examHistory, setExamHistory] = useState([]);
             const [qTime, setQTime] = useState(0);
             const [totalTime, setTotalTime] = useState(0);
-            const [showReview, setShowReview] = useState(false); 
+            const [showReview, setShowReview] = useState(false); // New state for review toggle
 
             useEffect(() => { 
-                fetch(`/api/exam/get?link_id=${linkId}`)
-                    .then(r => r.json())
-                    .then(d => {
-                        // FIX: Check for API errors first to prevent crash
-                        if(d.error) {
-                            setError(d.error);
-                            return;
-                        }
-                        if(!d.exam) {
-                            setError("Exam data invalid");
-                            return;
-                        }
-                        if(!d.exam.is_active) {
-                            setError("This exam is currently closed.");
-                            return;
-                        }
-                        
-                        setExam(d);
-                        // FIX: Safe access to config
-                        const safeConfig = d.config || [];
-                        const classes = [...new Set(safeConfig.filter(c=>c.type==='class').map(c=>c.value))];
-                        const sections = [...new Set(safeConfig.filter(c=>c.type==='section').map(c=>c.value))];
-                        setConfig({ classes, sections });
-                    })
-                    .catch(e => setError("Failed to load exam. Please check your connection."));
+                // FIX: Escaped backticks for fetching exams to prevent build error
+                fetch(\`/api/exam/get?link_id=\${linkId}\`).then(r=>r.json()).then(d => {
+                    if(!d.exam?.is_active) return alert("Exam Closed");
+                    setExam(d);
+                    const classes = [...new Set(d.config.filter(c=>c.type==='class').map(c=>c.value))];
+                    const sections = [...new Set(d.config.filter(c=>c.type==='section').map(c=>c.value))];
+                    setConfig({ classes, sections });
+                }); 
             }, [linkId]);
 
             // Timer Tick
@@ -1307,19 +1325,21 @@ function getHtml() {
 
                 localStorage.setItem('student_id', student.school_id);
 
+                // Security: Send raw answers to backend, let backend calculate score
                 const res = await fetch('/api/submit', { 
                     method: 'POST', 
                     body: JSON.stringify({ 
                         link_id: linkId, 
                         student, 
-                        answers: finalAnswers 
+                        answers: finalAnswers // Only sending IDs of selected choices
                     }) 
                 });
                 
-                if(!res.ok) return alert("Error Saving Result!");
+                if(!res.ok) return alert("Error Saving Result! Please try again or contact teacher.");
                 
                 const data = await res.json();
                 
+                // Update local state with server results
                 setScore(data.score);
                 setResultDetails(data.details);
                 
@@ -1337,38 +1357,25 @@ function getHtml() {
                  if(settings.timerMode==='question') setQTime(settings.timerValue||30);
             };
 
-            // FIX: Render Error State if exists
-            if (error) return (
-                <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center text-slate-800 bg-orange-50">
-                    <div className="bg-white p-8 rounded-3xl shadow-xl max-w-sm w-full">
-                        <div className="text-4xl mb-4">⚠️</div>
-                        <h2 className="text-xl font-bold mb-2">Unable to Start Exam</h2>
-                        <p className="text-gray-500 font-bold mb-6">{error}</p>
-                        <button onClick={() => window.location.reload()} className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold text-sm">Try Again</button>
-                    </div>
-                </div>
-            );
-
             if(!exam) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400">Loading Exam...</div>;
-            
-            // Safe parsing after error check ensures no crash
             const settings = JSON.parse(exam.exam.settings || '{}');
 
+            // FIX: Handle Dashboard Mode inside Exam App
             if(mode === 'dashboard') return <StudentPortal onBack={() => setMode('identify')} />;
 
             if(mode === 'identify') return (
                 <div className="min-h-screen bg-indigo-500 flex items-center justify-center p-6">
                     <div className="bg-white w-full max-w-sm p-8 rounded-3xl text-center anim-pop shadow-2xl">
                         <h1 className="text-2xl font-bold mb-4">Join Class</h1>
-                        {/* FIX: Prevent crash if student.school_id is undefined initially */}
-                        <input className="w-full bg-gray-100 p-4 rounded-xl font-bold mb-3 outline-none" placeholder="School ID" value={student.school_id || ''} onChange={e=>setStudent({...student, school_id:e.target.value})} />
+                        <input className="w-full bg-gray-100 p-4 rounded-xl font-bold mb-3 outline-none" placeholder="School ID" value={student.school_id} onChange={e=>setStudent({...student, school_id:e.target.value})} />
                         <button onClick={async()=>{
                             if(!student.school_id) return alert("Enter ID");
                             const r = await fetch('/api/student/identify', {method:'POST', body:JSON.stringify({school_id:student.school_id})}).then(x=>x.json());
                             if(r.found) { 
+                                // Check if profile incomplete
                                 if(!r.student.class || !r.student.section) {
-                                    setStudent({...student, ...r.student}); // Keep existing local input, merge DB data
-                                    setMode('update_profile'); 
+                                    setStudent({...student, ...r.student}); 
+                                    setMode('update_profile'); // Force update
                                 } else {
                                     setStudent({...student, ...r.student}); 
                                     startGame(); 
@@ -1376,6 +1383,7 @@ function getHtml() {
                             } else setMode('register');
                         }} className="w-full bg-black text-white p-4 rounded-xl font-bold">Next</button>
                         
+                        {/* FIX: Added Dashboard Login Option */}
                         <div className="mt-6 border-t border-gray-100 pt-4">
                             <p className="text-xs text-gray-400 font-bold mb-2">Want to check results?</p>
                             <button onClick={() => setMode('dashboard')} className="text-indigo-500 font-bold text-sm hover:underline">Login to Student Dashboard</button>
@@ -1444,8 +1452,10 @@ function getHtml() {
             if(mode === 'summary') return (
                 <div className="min-h-screen bg-slate-900 text-white p-6 overflow-y-auto">
                     <div className="max-w-2xl mx-auto space-y-6 pb-20">
+                        {/* Score Card */}
                         <div className="bg-slate-800 p-8 rounded-3xl text-center border border-slate-700 shadow-2xl">
                             <h2 className="text-3xl font-black mb-2 text-white">Exam Complete!</h2>
+                            {/* Stats Grid */}
                             <div className="grid grid-cols-3 gap-3 my-6">
                                 <div className="bg-green-500/10 p-3 rounded-2xl border border-green-500/20">
                                     <div className="text-2xl md:text-3xl font-black text-green-400">{score}</div>
@@ -1462,37 +1472,25 @@ function getHtml() {
                             </div>
                         </div>
 
+                        {/* Actions */}
                         <div className="space-y-3">
                              <button onClick={() => setShowReview(!showReview)} className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl font-bold flex justify-between items-center hover:bg-slate-700 transition">
                                 <span>See Correct Answers</span>
+                                {/* FIX: Escaped backticks (\`) and escaped dollar sign (\$) for the template literal below to prevent build error */}
                                 <span className={\`transform transition \${showReview ? 'rotate-180' : ''}\`}>▼</span>
                             </button>
                             
+                            {/* FIX: Direct switch to Dashboard Mode */}
                             <button onClick={() => setMode('dashboard')} className="w-full bg-orange-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-orange-500/20 btn-bounce flex items-center justify-center gap-2">
                                 <Icons.Users /> See Past Results
                             </button>
                         </div>
 
+                        {/* Detailed Review (Collapsible) */}
                         {showReview && (
                             <div className="space-y-4 anim-enter">
                                 <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
-                                {resultDetails.map((d, i) => (
-                                    <div key={i} className={\`p-6 rounded-2xl border \${d.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}>
-                                        <div className="font-bold text-lg mb-3">Q{i+1}. {d.qText}</div>
-                                        <div className="space-y-2">
-                                            <div className="flex items-start gap-2">
-                                                <span className="font-bold min-w-[60px] text-gray-500">Student:</span> 
-                                                <span className={\`font-bold \${d.isCorrect ? 'text-green-500' : 'text-red-500'}\`}>{d.selectedText}</span>
-                                            </div>
-                                            {!d.isCorrect && (
-                                                <div className="flex items-start gap-2">
-                                                    <span className="font-bold min-w-[60px] text-gray-500">Correct:</span> 
-                                                    <span className="font-bold text-gray-800">{d.correctText}</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
+                                {resultDetails.map((q, i) => (<div key={i} className={\`p-6 rounded-2xl border \${q.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}><div className="font-bold text-lg mb-3">Q{i+1}. {q.qText}</div><div className="space-y-2">{q.choices && q.choices.map(c => { const isSelected = c.id === q.selected; const isCorrectChoice = c.id === q.correct; let style = "bg-slate-800 border-slate-700 text-slate-400"; if (isCorrectChoice) style = "bg-green-500 text-white border-green-500"; else if (isSelected && !q.isCorrect) style = "bg-red-500 text-white border-red-500"; return (<div key={c.id} className={\`p-3 rounded-xl border flex justify-between items-center \${style}\`}> <span className="font-bold">{c.text}</span> {isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">You</span>} {isCorrectChoice && !isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">Correct</span>} </div>); })}</div></div>))}
                             </div>
                         )}
 
@@ -1502,6 +1500,7 @@ function getHtml() {
             );
         }
 
+        // --- APP ROOT ---
         function App() {
             const [status, setStatus] = useState(null);
             const [user, setUser] = useState(null);
@@ -1509,6 +1508,7 @@ function getHtml() {
             const [toasts, setToasts] = useState([]);
             const linkId = new URLSearchParams(window.location.search).get('exam');
 
+            // Routing
             useEffect(() => { 
                 const checkHash = () => { 
                     const h = window.location.hash.slice(1); 
@@ -1521,6 +1521,7 @@ function getHtml() {
                 return () => window.removeEventListener('hashchange', checkHash); 
             }, [user]);
 
+            // Persist User
             useEffect(() => { 
                 try { 
                     const u = localStorage.getItem('mc_user'); 
@@ -1564,6 +1565,5 @@ function getHtml() {
 </body>
 </html>`;
 }
-
 
 
