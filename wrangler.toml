@@ -5,7 +5,7 @@ compatibility_date = "2024-03-20"
 [[d1_databases]]
 binding = "DB"
 database_name = "exam"
-database_id = "700d1c2e-1e21-4bdb-a0f9-6693b1e1a743"
+database_id = "014fb844-bc51-4b66-850a-0a2a04e4506b"
 
 [[r2_buckets]]
 binding = "BUCKET"
