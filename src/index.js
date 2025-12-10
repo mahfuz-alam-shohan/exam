@@ -2,7 +2,7 @@
  * Cloudflare Worker - My Class (SaaS Masterclass)
  * - Branding: "My Class" (Playful, Kiddy, Mobile-First)
  * - Features: Class/Section Management, Student Filtering, robust Image Handling, Analytics
- * - Fixes: Auto-schema migration in /api/submit to prevent data loss
+ * - Fixes: Escaped all template literals in getHtml() to fix build errors
  */
 
 export default {
@@ -712,7 +712,7 @@ function getHtml() {
             const [statId, setStatId] = useState(null);
 
             useEffect(() => { loadExams(); }, []);
-            const loadExams = () => fetch(`/api/teacher/exams?teacher_id=${user.id}`).then(r=>r.json()).then(d=>setExams(Array.isArray(d)?d:[]));
+            const loadExams = () => fetch(\`/api/teacher/exams?teacher_id=\${user.id}\`).then(r=>r.json()).then(d=>setExams(Array.isArray(d)?d:[]));
 
             // FIX: Handle Browser Back Button Logic
             useEffect(() => {
@@ -754,11 +754,11 @@ function getHtml() {
                 >
                     {tab === 'exams' && <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 anim-enter pb-20">{exams.map(e => (
                         <div key={e.id} className="bg-white p-5 rounded-3xl shadow-sm border border-orange-100 relative group overflow-hidden">
-                            <div className={`absolute top-0 left-0 w-2 h-full ${e.is_active ? 'bg-green-400' : 'bg-gray-300'}`}></div>
+                            <div className={\`absolute top-0 left-0 w-2 h-full \${e.is_active ? 'bg-green-400' : 'bg-gray-300'}\`}></div>
                             <div className="pl-4">
                                 <div className="flex justify-between items-start mb-2"><h3 className="font-bold text-lg text-slate-800 line-clamp-1">{e.title}</h3><button onClick={()=>del(e.id)} className="text-gray-300 hover:text-red-500"><Icons.Trash/></button></div>
                                 <div className="flex justify-between items-center mt-4"><Toggle checked={!!e.is_active} onChange={()=>toggle(e.id, e.is_active)} /><div className="flex gap-2"><button onClick={() => navigateTo('create', e.id)} className="bg-orange-50 text-orange-600 p-2 rounded-xl"><Icons.Edit /></button><button onClick={() => navigateTo('stats', e.id)} className="bg-blue-50 text-blue-600 p-2 rounded-xl"><Icons.Chart /></button></div></div>
-                                <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/?exam=${e.link_id}`); addToast("Link Copied!"); }} className="w-full mt-4 bg-gray-50 text-gray-600 text-xs font-bold py-2 rounded-xl hover:bg-gray-100">Copy Link</button>
+                                <button onClick={() => { navigator.clipboard.writeText(\`\${window.location.origin}/?exam=\${e.link_id}\`); addToast("Link Copied!"); }} className="w-full mt-4 bg-gray-50 text-gray-600 text-xs font-bold py-2 rounded-xl hover:bg-gray-100">Copy Link</button>
                             </div>
                         </div>
                     ))}</div>}
@@ -969,7 +969,7 @@ function getHtml() {
             const [showReview, setShowReview] = useState(false); // New state for review toggle
 
             useEffect(() => { 
-                fetch(`/api/exam/get?link_id=${linkId}`).then(r=>r.json()).then(d => {
+                fetch(\`/api/exam/get?link_id=\${linkId}\`).then(r=>r.json()).then(d => {
                     if(!d.exam?.is_active) return alert("Exam Closed");
                     setExam(d);
                     const classes = [...new Set(d.config.filter(c=>c.type==='class').map(c=>c.value))];
@@ -1145,7 +1145,7 @@ function getHtml() {
                         <div className="space-y-3">
                              <button onClick={() => setShowReview(!showReview)} className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl font-bold flex justify-between items-center hover:bg-slate-700 transition">
                                 <span>See Correct Answers</span>
-                                <span className={`transform transition ${showReview ? 'rotate-180' : ''}`}>▼</span>
+                                <span className={`transform transition \${showReview ? 'rotate-180' : ''}`}>▼</span>
                             </button>
                             
                             <button onClick={() => window.location.href = window.location.origin + '/#student'} className="w-full bg-orange-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-orange-500/20 btn-bounce flex items-center justify-center gap-2">
@@ -1157,7 +1157,7 @@ function getHtml() {
                         {showReview && (
                             <div className="space-y-4 anim-enter">
                                 <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
-                                {resultDetails.map((q, i) => (<div key={i} className={`p-6 rounded-2xl border ${q.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}`}><div className="font-bold text-lg mb-3">Q{i+1}. {q.qText}</div><div className="space-y-2">{q.choices.map(c => { const isSelected = c.id === q.selected; const isCorrectChoice = c.id === q.correct; let style = "bg-slate-800 border-slate-700 text-slate-400"; if (isCorrectChoice) style = "bg-green-500 text-white border-green-500"; else if (isSelected && !q.isCorrect) style = "bg-red-500 text-white border-red-500"; return (<div key={c.id} className={`p-3 rounded-xl border flex justify-between items-center ${style}`}> <span className="font-bold">{c.text}</span> {isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">You</span>} {isCorrectChoice && !isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">Correct</span>} </div>); })}</div></div>))}
+                                {resultDetails.map((q, i) => (<div key={i} className={\`p-6 rounded-2xl border \${q.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}><div className="font-bold text-lg mb-3">Q{i+1}. {q.qText}</div><div className="space-y-2">{q.choices.map(c => { const isSelected = c.id === q.selected; const isCorrectChoice = c.id === q.correct; let style = "bg-slate-800 border-slate-700 text-slate-400"; if (isCorrectChoice) style = "bg-green-500 text-white border-green-500"; else if (isSelected && !q.isCorrect) style = "bg-red-500 text-white border-red-500"; return (<div key={c.id} className={\`p-3 rounded-xl border flex justify-between items-center \${style}\`}> <span className="font-bold">{c.text}</span> {isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">You</span>} {isCorrectChoice && !isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">Correct</span>} </div>); })}</div></div>))}
                             </div>
                         )}
 
