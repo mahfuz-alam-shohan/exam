@@ -5,7 +5,7 @@
  * - Features: Class/Section Management, Student Filtering, robust Image Handling, Analytics
  */
 
-const JWT_SECRET = "CHANGE_THIS_SECRET_IN_PROD_TO_SOMETHING_RANDOM_AND_LONG"; // In prod, use env.JWT_SECRET
+const JWT_SECRET = "faifnoq3hf28h3f872o8gh3fy2bf$%E$^Ddqu9hdn92iu3hdniu2h387n78yh87h78&Y*&Y*&*Y((U*(U()*)*)(*)(ijioohniubjk^fvufuhji872g"; // In prod, use env.JWT_SECRET
 
 export default {
   async fetch(request, env) {
