@@ -466,8 +466,9 @@ function getHtml() {
 
         // FIX: Fixed unescaped backticks in Toggle component
         const Toggle = ({ checked, onChange }) => (
-            <button onClick={() => onChange(!checked)} className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none ${checked ? 'bg-green-400' : 'bg-gray-200'}`}>
-                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
+            // FIX: Escaped backticks for className
+            <button onClick={() => onChange(!checked)} className={\`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none \${checked ? 'bg-green-400' : 'bg-gray-200'}\`}>
+                <span className={\`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform \${checked ? 'translate-x-6' : 'translate-x-1'}\`} />
             </button>
         );
 
@@ -483,7 +484,7 @@ function getHtml() {
                     </div>
                     <div className="p-4 max-w-2xl mx-auto pb-20">
                         <h3 className="font-bold text-2xl mb-1 text-center">{result.name}</h3>
-                        <p className="text-center text-gray-400 mb-6 font-bold">{result.roll ? `Roll: ${result.roll}` : ''} {result.timestamp && ` • ${new Date(result.timestamp).toLocaleString()}`}</p>
+                        <p className="text-center text-gray-400 mb-6 font-bold">{result.roll ? \`Roll: \${result.roll}\` : ''} {result.timestamp && \` • \${new Date(result.timestamp).toLocaleString()}\`}</p>
                         
                         <div className="flex justify-center gap-4 mb-8">
                             <div className="bg-green-50 text-green-600 px-4 py-2 rounded-xl font-bold border border-green-100">Score: {result.score}/{result.total}</div>
@@ -492,7 +493,8 @@ function getHtml() {
 
                         <div className="space-y-4">
                             {JSON.parse(result.details || '[]').map((d,i)=>(
-                                <div key={i} className={`p-4 rounded-2xl border ${d.isCorrect?'bg-green-50/50 border-green-200':'bg-red-50/50 border-red-200'}`}>
+                                // FIX: Escaped backticks in className
+                                <div key={i} className={\`p-4 rounded-2xl border \${d.isCorrect?'bg-green-50/50 border-green-200':'bg-red-50/50 border-red-200'}\`}>
                                     <div className="font-bold text-gray-800 mb-2">Q{i+1}: {d.qText}</div>
                                     <div className="text-sm space-y-1">
                                         <div className="flex items-start gap-2">
@@ -879,7 +881,7 @@ function getHtml() {
             const [loading, setLoading] = useState(true);
             
             useEffect(() => { 
-                fetch(`/api/analytics/exam?exam_id=${examId}`)
+                fetch(\`/api/analytics/exam?exam_id=\${examId}\`)
                     .then(r=>r.json())
                     .then(d=>{ setData(Array.isArray(d)?d:[]); setLoading(false); })
                     .catch(()=>setLoading(false));
@@ -898,11 +900,11 @@ function getHtml() {
                         <div key={r.id} onClick={()=>setViewDetail(r)} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center cursor-pointer active:scale-95 transition hover:shadow-sm">
                             <div>
                                 <div className="font-bold text-slate-800">{r.name} {r.roll && <span className="text-gray-400 font-normal text-xs ml-1">(Roll: {r.roll})</span>}</div>
-                                <div className="text-xs text-gray-500 mt-1">{r.class && `Class ${r.class}`} • {new Date(r.timestamp).toLocaleString()}</div>
+                                <div className="text-xs text-gray-500 mt-1">{r.class && \`Class \${r.class}\`} • {new Date(r.timestamp).toLocaleString()}</div>
                             </div>
                             <div className="flex items-center gap-3">
                                 {/* FIX: Escaped backticks in className */}
-                                <div className={`px-3 py-1 rounded-lg font-bold text-sm ${ (r.score/r.total) >= 0.6 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600' }`}>
+                                <div className={\`px-3 py-1 rounded-lg font-bold text-sm \${ (r.score/r.total) >= 0.6 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600' }\`}>
                                     {Math.round((r.score/r.total)*100)}%
                                 </div>
                                 <Icons.Back className="rotate-180 w-4 h-4 text-gray-300" />
@@ -1364,7 +1366,7 @@ function getHtml() {
                                         <p className="text-xs text-gray-400 font-bold">{new Date(h.timestamp).toLocaleDateString()}</p>
                                     </div>
                                     {/* FIX: Escaped backticks in className */}
-                                    <div className={`text-lg font-black ${ (h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400' }`}>{h.score}/{h.total}</div>
+                                    <div className={\`text-lg font-black \${ (h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400' }\`}>{h.score}/{h.total}</div>
                                 </div>
                             ))}
                         </div>
