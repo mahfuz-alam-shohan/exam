@@ -712,25 +712,53 @@ function getHtml() {
             const [statId, setStatId] = useState(null);
 
             useEffect(() => { loadExams(); }, []);
-            const loadExams = () => fetch(\`/api/teacher/exams?teacher_id=\${user.id}\`).then(r=>r.json()).then(d=>setExams(Array.isArray(d)?d:[]));
+            const loadExams = () => fetch(`/api/teacher/exams?teacher_id=${user.id}`).then(r=>r.json()).then(d=>setExams(Array.isArray(d)?d:[]));
+
+            // FIX: Handle Browser Back Button Logic
+            useEffect(() => {
+                const handlePop = () => {
+                    // When user clicks browser Back, close any open panels
+                    setMode('list');
+                    setEditId(null);
+                    setStatId(null);
+                };
+                window.addEventListener('popstate', handlePop);
+                return () => window.removeEventListener('popstate', handlePop);
+            }, []);
+
+            // Helper to open views and push history state
+            const navigateTo = (newMode, id=null) => {
+                window.history.pushState({ mode: newMode }, ''); // Create a history entry
+                if(newMode === 'create') setEditId(id);
+                if(newMode === 'stats') setStatId(id);
+                setMode(newMode);
+            };
+
+            // FIX: Reset mode when switching tabs
+            const handleTabChange = (newTab) => {
+                setTab(newTab);
+                if(mode !== 'list') setMode('list');
+            };
 
             const toggle = async (id, isActive) => { await fetch('/api/exam/toggle', {method:'POST', body:JSON.stringify({id, is_active:!isActive})}); loadExams(); };
             const del = async (id) => { if(!confirm("Delete?")) return; await fetch('/api/exam/delete', {method:'POST', body:JSON.stringify({id})}); loadExams(); };
 
-            if (mode === 'create') return <ExamEditor user={user} examId={editId} onCancel={() => setMode('list')} onFinish={() => { setMode('list'); loadExams(); addToast("Exam Saved!"); }} addToast={addToast} />;
-            if (mode === 'stats') return <DashboardLayout user={user} onLogout={onLogout} title="Analytics" activeTab={tab} onTabChange={setTab} action={<button onClick={()=>setMode('list')} className="text-gray-500 font-bold">← Back</button>}><ExamStats examId={statId} /></DashboardLayout>;
+            // Using history.back() triggers the popstate listener we defined above
+            if (mode === 'create') return <ExamEditor user={user} examId={editId} onCancel={() => window.history.back()} onFinish={() => { window.history.back(); loadExams(); addToast("Exam Saved!"); }} addToast={addToast} />;
+            
+            if (mode === 'stats') return <DashboardLayout user={user} onLogout={onLogout} title="Analytics" activeTab={tab} onTabChange={handleTabChange} action={<button onClick={()=>window.history.back()} className="text-gray-500 font-bold">← Back</button>}><ExamStats examId={statId} /></DashboardLayout>;
 
             return (
-                <DashboardLayout user={user} onLogout={onLogout} title={tab==='exams'?'My Exams':'Students'} activeTab={tab} onTabChange={setTab}
-                    action={tab === 'exams' && <button onClick={() => { setEditId(null); setMode('create'); }} className="bg-orange-500 text-white px-4 py-2 rounded-xl font-bold shadow-lg shadow-orange-200 btn-bounce flex items-center gap-2"><Icons.Plus /> <span className="hidden sm:inline">New Exam</span></button>}
+                <DashboardLayout user={user} onLogout={onLogout} title={tab==='exams'?'My Exams':'Students'} activeTab={tab} onTabChange={handleTabChange}
+                    action={tab === 'exams' && <button onClick={() => navigateTo('create')} className="bg-orange-500 text-white px-4 py-2 rounded-xl font-bold shadow-lg shadow-orange-200 btn-bounce flex items-center gap-2"><Icons.Plus /> <span className="hidden sm:inline">New Exam</span></button>}
                 >
                     {tab === 'exams' && <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 anim-enter pb-20">{exams.map(e => (
                         <div key={e.id} className="bg-white p-5 rounded-3xl shadow-sm border border-orange-100 relative group overflow-hidden">
-                            <div className={\`absolute top-0 left-0 w-2 h-full \${e.is_active ? 'bg-green-400' : 'bg-gray-300'}\`}></div>
+                            <div className={`absolute top-0 left-0 w-2 h-full ${e.is_active ? 'bg-green-400' : 'bg-gray-300'}`}></div>
                             <div className="pl-4">
                                 <div className="flex justify-between items-start mb-2"><h3 className="font-bold text-lg text-slate-800 line-clamp-1">{e.title}</h3><button onClick={()=>del(e.id)} className="text-gray-300 hover:text-red-500"><Icons.Trash/></button></div>
-                                <div className="flex justify-between items-center mt-4"><Toggle checked={!!e.is_active} onChange={()=>toggle(e.id, e.is_active)} /><div className="flex gap-2"><button onClick={() => { setEditId(e.id); setMode('create'); }} className="bg-orange-50 text-orange-600 p-2 rounded-xl"><Icons.Edit /></button><button onClick={() => { setStatId(e.id); setMode('stats'); }} className="bg-blue-50 text-blue-600 p-2 rounded-xl"><Icons.Chart /></button></div></div>
-                                <button onClick={() => { navigator.clipboard.writeText(\`\${window.location.origin}/?exam=\${e.link_id}\`); addToast("Link Copied!"); }} className="w-full mt-4 bg-gray-50 text-gray-600 text-xs font-bold py-2 rounded-xl hover:bg-gray-100">Copy Link</button>
+                                <div className="flex justify-between items-center mt-4"><Toggle checked={!!e.is_active} onChange={()=>toggle(e.id, e.is_active)} /><div className="flex gap-2"><button onClick={() => navigateTo('create', e.id)} className="bg-orange-50 text-orange-600 p-2 rounded-xl"><Icons.Edit /></button><button onClick={() => navigateTo('stats', e.id)} className="bg-blue-50 text-blue-600 p-2 rounded-xl"><Icons.Chart /></button></div></div>
+                                <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/?exam=${e.link_id}`); addToast("Link Copied!"); }} className="w-full mt-4 bg-gray-50 text-gray-600 text-xs font-bold py-2 rounded-xl hover:bg-gray-100">Copy Link</button>
                             </div>
                         </div>
                     ))}</div>}
