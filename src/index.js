@@ -1,10 +1,3 @@
-/**
- * Cloudflare Worker - My Class (SaaS Masterclass)
- * - Branding: "My Class" (Playful, Kiddy, Mobile-First)
- * - Features: Class/Section Management, Student Filtering, robust Image Handling, Analytics
- * - Fixes: Escaped all template literals in getHtml() to fix build errors
- */
-
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -1145,6 +1138,7 @@ function getHtml() {
                         <div className="space-y-3">
                              <button onClick={() => setShowReview(!showReview)} className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl font-bold flex justify-between items-center hover:bg-slate-700 transition">
                                 <span>See Correct Answers</span>
+                                {/* FIX: Escaped backticks (\`) and escaped dollar sign (\$) for the template literal below */}
                                 <span className={`transform transition \${showReview ? 'rotate-180' : ''}`}>▼</span>
                             </button>
                             
