@@ -2,7 +2,7 @@
  * Cloudflare Worker - My Class (SaaS Masterclass)
  * - Security: Password Hashing, JWT, Server-Side Grading, Secure Headers
  * - Features: Admin/Teacher/Student portals, Analytics, R2 Images
- * - Fixes: Moved StudentPortal up to fix ReferenceError, fixed Exam Summary Review logic
+ * - Fixes: Escaped backticks in ExamEditor fetch URL to fix build error
  */
 
 const JWT_SECRET = "CHANGE_THIS_SECRET_IN_PROD_TO_SOMETHING_RANDOM_AND_LONG"; 
@@ -598,7 +598,7 @@ function getHtml() {
         );
 
         // --- COMPONENTS ---
-
+        
         // FIX: Reordered Component (StudentPortal defined before StudentExamApp)
         function StudentPortal({ onBack }) {
              const [id, setId] = useState('');
@@ -758,6 +758,8 @@ function getHtml() {
                 </div>
             );
         }
+
+        // ... [Setup, Login, DashboardLayout, SchoolConfigView, AdminView, TeacherView, StudentList, ExamStats, ExamEditor components remain below as they were] ...
 
         function Setup({ onComplete, addToast }) { 
              const handle = async (e) => { 
@@ -1263,7 +1265,7 @@ function getHtml() {
             const [submitting, setSubmitting] = useState(false);
 
             useEffect(() => {
-                if (examId) apiFetch(`/api/teacher/exam-details?id=${examId}`).then(r => r.json()).then(data => {
+                if (examId) apiFetch(\`/api/teacher/exam-details?id=\${examId}\`).then(r => r.json()).then(data => {
                     setMeta({ ...meta, ...JSON.parse(data.exam.settings || '{}'), title: data.exam.title });
                     // FIX: Assign unique tempId to loaded questions to prevent "update all" bug
                     setQs(data.questions.map((q, i) => ({ 
