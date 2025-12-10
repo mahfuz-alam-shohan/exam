@@ -2,7 +2,7 @@
  * Cloudflare Worker - My Class (SaaS Masterclass)
  * - Branding: "My Class" (Playful, Kiddy, Mobile-First)
  * - Features: Class/Section Management, Student Filtering, robust Image Handling, Analytics
- * - Fixes: Syntax errors in template literals (backticks escaped)
+ * - Fixes: Syntax errors in TeacherView template literals (backticks escaped)
  */
 
 export default {
@@ -779,7 +779,8 @@ function getHtml() {
             
             const loadExams = () => {
                 setLoading(true);
-                fetch(`/api/teacher/exams?teacher_id=${user.id}`)
+                // FIX: Escaped backticks for fetching exams to prevent build error
+                fetch(\`/api/teacher/exams?teacher_id=\${user.id}\`)
                     .then(r=>r.json())
                     .then(d=>{
                         setExams(Array.isArray(d)?d:[]);
@@ -830,11 +831,12 @@ function getHtml() {
                             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 w-full anim-enter pb-20">
                                 {exams.map(e => (
                                     <div key={e.id} className="bg-white p-5 rounded-3xl shadow-sm border border-orange-100 relative group overflow-hidden">
-                                        <div className={`absolute top-0 left-0 w-2 h-full ${e.is_active ? 'bg-green-400' : 'bg-gray-300'}`}></div>
+                                        <div className={\`absolute top-0 left-0 w-2 h-full \${e.is_active ? 'bg-green-400' : 'bg-gray-300'}\`}></div>
                                         <div className="pl-4">
                                             <div className="flex justify-between items-start mb-2"><h3 className="font-bold text-lg text-slate-800 line-clamp-1">{e.title}</h3><button onClick={()=>del(e.id)} className="text-gray-300 hover:text-red-500"><Icons.Trash/></button></div>
                                             <div className="flex justify-between items-center mt-4"><Toggle checked={!!e.is_active} onChange={()=>toggle(e.id, e.is_active)} /><div className="flex gap-2"><button onClick={() => navigateTo('create', e.id)} className="bg-orange-50 text-orange-600 p-2 rounded-xl"><Icons.Edit /></button><button onClick={() => navigateTo('stats', e.id)} className="bg-blue-50 text-blue-600 p-2 rounded-xl"><Icons.Chart /></button></div></div>
-                                            <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/?exam=${e.link_id}`); addToast("Link Copied!"); }} className="w-full mt-4 bg-gray-50 text-gray-600 text-xs font-bold py-2 rounded-xl hover:bg-gray-100">Copy Link</button>
+                                            {/* FIX: Escaped backticks in copy link button */}
+                                            <button onClick={() => { navigator.clipboard.writeText(\`\${window.location.origin}/?exam=\${e.link_id}\`); addToast("Link Copied!"); }} className="w-full mt-4 bg-gray-50 text-gray-600 text-xs font-bold py-2 rounded-xl hover:bg-gray-100">Copy Link</button>
                                         </div>
                                     </div>
                                 ))}
