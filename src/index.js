@@ -1139,7 +1139,7 @@ function getHtml() {
                              <button onClick={() => setShowReview(!showReview)} className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl font-bold flex justify-between items-center hover:bg-slate-700 transition">
                                 <span>See Correct Answers</span>
                                 {/* FIX: Escaped backticks (\`) and escaped dollar sign (\$) for the template literal below */}
-                                <span className={`transform transition \${showReview ? 'rotate-180' : ''}`}>▼</span>
+                                <span className={\`transform transition \${showReview ? 'rotate-180' : ''}\`}>▼</span>
                             </button>
                             
                             <button onClick={() => window.location.href = window.location.origin + '/#student'} className="w-full bg-orange-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-orange-500/20 btn-bounce flex items-center justify-center gap-2">
