@@ -797,7 +797,12 @@ function getHtml() {
                     <div className="grid gap-3">
                         {filtered.map(s=><div key={s.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
                             {/* FIX: Added Roll Number Display */}
-                            <div><div className="font-bold">{s.name} <span className="text-gray-400 font-normal text-xs ml-1">(Roll: {s.roll || 'N/A'})</span></div><div className="text-xs text-gray-400">{s.school_id}</div><div className="text-xs font-bold text-indigo-500 mt-1">{s.class ? `Class ${s.class}` : 'No Class'} {s.section && ` - ${s.section}`}</div></div>
+                            <div>
+                                <div className="font-bold">{s.name} <span className="text-gray-400 font-normal text-xs ml-1">(Roll: {s.roll || 'N/A'})</span></div>
+                                <div className="text-xs text-gray-400">{s.school_id}</div>
+                                {/* FIX: Escaped backticks (\`) and dollar signs (\$) below to prevent build error */}
+                                <div className="text-xs font-bold text-indigo-500 mt-1">{s.class ? \`Class \${s.class}\` : 'No Class'} {s.section && \` - \${s.section}\`}</div>
+                            </div>
                             <div className="font-bold text-green-500">{Math.round(s.avg_score||0)}%</div>
                         </div>)}
                         {filtered.length === 0 && <div className="text-center text-gray-400 py-10">No students found</div>}
