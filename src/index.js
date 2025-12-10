@@ -2,7 +2,7 @@
  * Cloudflare Worker - My Class (SaaS Masterclass)
  * - Security: Password Hashing, JWT, Server-Side Grading, Secure Headers
  * - Features: Admin/Teacher/Student portals, Analytics, R2 Images
- * - Fixes: Escaped backticks in StudentExamApp fetch URL to fix build error
+ * - Fixes: Moved StudentPortal up to fix ReferenceError, fixed Exam Summary Review logic
  */
 
 const JWT_SECRET = "CHANGE_THIS_SECRET_IN_PROD_TO_SOMETHING_RANDOM_AND_LONG"; 
@@ -599,6 +599,126 @@ function getHtml() {
 
         // --- COMPONENTS ---
 
+        // FIX: Reordered Component (StudentPortal defined before StudentExamApp)
+        function StudentPortal({ onBack }) {
+             const [id, setId] = useState('');
+             const [data, setData] = useState(null);
+             const [selectedExam, setSelectedExam] = useState(null); 
+             const [viewDetail, setViewDetail] = useState(null); 
+             
+             const refreshData = async () => {
+                 if(!localStorage.getItem('student_id')) return;
+                 const res = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: localStorage.getItem('student_id') }) }).then(r => r.json()); 
+                 if(res.found) setData(res);
+             };
+
+             const login = async (e) => { 
+                 e.preventDefault(); 
+                 const res = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: id }) }).then(r => r.json()); 
+                 if(res.found) { setData(res); localStorage.setItem('student_id', id); } 
+                 else alert("ID not found!"); 
+            };
+             
+             useEffect(() => { 
+                 const saved = localStorage.getItem('student_id'); 
+                 if(saved && !data) {
+                     fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: saved }) }).then(r => r.json()).then(r => r.found && setData(r)); 
+                 }
+            }, []);
+
+             if(!data) return (
+                <div className="min-h-screen bg-orange-50 flex items-center justify-center p-6">
+                    <div className="bg-white w-full max-w-sm p-8 rounded-3xl shadow-xl text-center anim-pop relative">
+                        <button onClick={onBack} className="absolute top-6 left-6 text-gray-400 font-bold text-sm">Back</button>
+                        <div className="mb-6 mx-auto w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center text-orange-500"><Icons.Logo /></div>
+                        <h1 className="text-2xl font-bold text-slate-800 mb-2">Student Hub</h1>
+                        <form onSubmit={login}>
+                            <input value={id} onChange={e=>setId(e.target.value)} className="w-full bg-gray-100 p-4 rounded-2xl font-bold text-center text-lg outline-none focus:ring-2 focus:ring-orange-400 mb-4" placeholder="Enter School ID" />
+                            <button className="w-full bg-orange-500 text-white font-bold py-4 rounded-2xl btn-bounce shadow-lg shadow-orange-200">Enter</button>
+                        </form>
+                    </div>
+                </div>
+            );
+
+             if(viewDetail) return <ResultDetailView result={{...viewDetail, name: data.student.name, roll: data.student.roll}} onClose={()=>setViewDetail(null)} />;
+
+             const examGroups = data ? Object.values(data.history.reduce((acc, curr) => {
+                 if(!acc[curr.exam_id]) acc[curr.exam_id] = { ...curr, attempts: [] };
+                 acc[curr.exam_id].attempts.push(curr);
+                 return acc;
+             }, {})) : [];
+
+             if(selectedExam) {
+                 return (
+                    <div className="min-h-screen bg-orange-50 pb-safe p-4">
+                        <div className="max-w-lg mx-auto">
+                            <button onClick={()=>setSelectedExam(null)} className="flex items-center gap-2 text-gray-500 font-bold mb-4"><Icons.Back/> Back to Dashboard</button>
+                            <h2 className="text-2xl font-bold text-slate-800 mb-2">{selectedExam.title}</h2>
+                            <p className="text-gray-500 text-sm font-bold mb-6">Your Performance History</p>
+                            
+                            <div className="space-y-3">
+                                {selectedExam.attempts.map((h, i) => (
+                                    <div key={h.id} onClick={()=>setViewDetail(h)} className="bg-white p-5 rounded-2xl shadow-sm border border-orange-50 flex justify-between items-center cursor-pointer active:scale-95 transition">
+                                        <div>
+                                            <h4 className="font-bold text-slate-800 text-sm">Attempt #{selectedExam.attempts.length - i}</h4>
+                                            <p className="text-xs text-gray-400 font-bold">{new Date(h.timestamp).toLocaleString()}</p>
+                                        </div>
+                                        <div className={\`text-lg font-black \${ (h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400' }\`}>{h.score}/{h.total}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                 );
+             }
+
+             return (
+                <div className="min-h-screen bg-orange-50 pb-safe">
+                    <div className="bg-orange-500 p-8 pb-16 rounded-b-[40px] text-white shadow-lg relative overflow-hidden">
+                        <div className="relative z-10">
+                            <div className="flex justify-between items-center mb-6">
+                                <div className="flex gap-2">
+                                    <button onClick={()=>{localStorage.removeItem('student_id'); setData(null);}} className="bg-white/20 p-2 rounded-xl backdrop-blur-sm text-sm font-bold flex items-center gap-2 hover:bg-white/30 transition"><Icons.Logout/> Logout</button>
+                                    <button onClick={refreshData} className="bg-white/20 p-2 rounded-xl backdrop-blur-sm text-white hover:bg-white/30 transition"><Icons.Refresh/></button>
+                                </div>
+                                <span className="font-bold opacity-70">My Class</span>
+                            </div>
+                            <h1 className="text-3xl font-bold mb-1 truncate">Hi, {data.student.name.split(' ')[0]}!</h1>
+                            <p className="opacity-80 font-bold text-sm tracking-wide">{data.student.school_id} • Class {data.student.class || 'N/A'}</p>
+                        </div>
+                    </div>
+                    <div className="px-6 -mt-10 relative z-20 max-w-lg mx-auto space-y-6">
+                        <div className="bg-white p-6 rounded-3xl shadow-lg flex justify-around text-center">
+                            <div>
+                                <div className="text-3xl font-black text-slate-800">{data.history.length}</div>
+                                <div className="text-xs font-bold text-gray-400 uppercase">Exams Taken</div>
+                            </div>
+                            <div className="w-px bg-gray-100"></div>
+                            <div>
+                                <div className="text-3xl font-black text-green-500">{Math.round(data.history.reduce((a,b)=>a+(b.score/b.total),0)/data.history.length * 100 || 0)}%</div>
+                                <div className="text-xs font-bold text-gray-400 uppercase">Avg Score</div>
+                            </div>
+                        </div>
+                        <div className="space-y-4 pb-10">
+                            <div className="flex justify-between items-center px-2">
+                                <h3 className="font-bold text-slate-400 text-xs uppercase">Your Exams</h3>
+                                <button onClick={refreshData} className="text-orange-500 text-xs font-bold">Refresh</button>
+                            </div>
+                            {examGroups.map(group => (
+                                <div key={group.exam_id} onClick={()=>setSelectedExam(group)} className="bg-white p-5 rounded-2xl shadow-sm border border-orange-50 flex justify-between items-center cursor-pointer active:scale-95 transition">
+                                    <div>
+                                        <h4 className="font-bold text-slate-800">{group.title}</h4>
+                                        <p className="text-xs text-indigo-500 font-bold">{group.attempts.length} Attempts</p>
+                                    </div>
+                                    <Icons.Back className="rotate-180 text-gray-300 w-5 h-5"/>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
         function ResultDetailView({ result, onClose }) {
             return (
                 <div className="fixed inset-0 bg-white z-[60] overflow-y-auto anim-enter">
@@ -1046,10 +1166,7 @@ function getHtml() {
                     <div className="grid gap-3">
                         {filtered.map(s=><div key={s.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
                             <div>
-                                <div className="font-bold">{s.name} <span className="text-gray-400 font-normal text-xs ml-1">(Roll: {s.roll || 'N/A'})</span></div>
-                                <div className="text-xs text-gray-400">{s.school_id}</div>
-                                <div className="text-xs font-bold text-indigo-500 mt-1">{s.class ? \`Class \${s.class}\` : 'No Class'} {s.section && \` - \${s.section}\`}</div>
-                            </div>
+                                <div className="font-bold">{s.name}</div><div className="text-xs text-gray-400">{s.school_id}</div><div className="text-xs font-bold text-indigo-500 mt-1">{s.class ? \`Class \${s.class}\` : 'No Class'} {s.section && \` - \${s.section}\`}</div></div>
                             <div className="font-bold text-green-500">{Math.round(s.avg_score||0)}%</div>
                         </div>)}
                         {filtered.length === 0 && <div className="text-center text-gray-400 py-10">No students found</div>}
@@ -1287,7 +1404,7 @@ function getHtml() {
             const [qIdx, setQIdx] = useState(0); 
             const [score, setScore] = useState(0); 
             const [answers, setAnswers] = useState({});
-            const [resultDetails, setResultDetails] = useState(null);
+            const [resultDetails, setResultDetails] = useState([]);
             const [examHistory, setExamHistory] = useState([]);
             const [qTime, setQTime] = useState(0);
             const [totalTime, setTotalTime] = useState(0);
@@ -1520,7 +1637,23 @@ function getHtml() {
                         {showReview && (
                             <div className="space-y-4 anim-enter">
                                 <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
-                                {resultDetails.map((q, i) => (<div key={i} className={\`p-6 rounded-2xl border \${q.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}><div className="font-bold text-lg mb-3">Q{i+1}. {q.qText}</div><div className="space-y-2">{q.choices && q.choices.map(c => { const isSelected = c.id === q.selected; const isCorrectChoice = c.id === q.correct; let style = "bg-slate-800 border-slate-700 text-slate-400"; if (isCorrectChoice) style = "bg-green-500 text-white border-green-500"; else if (isSelected && !q.isCorrect) style = "bg-red-500 text-white border-red-500"; return (<div key={c.id} className={\`p-3 rounded-xl border flex justify-between items-center \${style}\`}> <span className="font-bold">{c.text}</span> {isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">You</span>} {isCorrectChoice && !isSelected && <span className="text-xs bg-white/20 px-2 py-1 rounded">Correct</span>} </div>); })}</div></div>))}
+                                {resultDetails.map((d, i) => (
+                                    <div key={i} className={\`p-6 rounded-2xl border \${d.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}>
+                                        <div className="font-bold text-lg mb-3">Q{i+1}. {d.qText}</div>
+                                        <div className="space-y-2">
+                                            <div className="flex items-start gap-2">
+                                                <span className="font-bold min-w-[60px] text-gray-500">Student:</span> 
+                                                <span className={\`font-bold \${d.isCorrect ? 'text-green-500' : 'text-red-500'}\`}>{d.selectedText}</span>
+                                            </div>
+                                            {!d.isCorrect && (
+                                                <div className="flex items-start gap-2">
+                                                    <span className="font-bold min-w-[60px] text-gray-500">Correct:</span> 
+                                                    <span className="font-bold text-gray-800">{d.correctText}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         )}
 
