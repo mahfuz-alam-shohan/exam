@@ -796,7 +796,8 @@ function getHtml() {
                     </div>
                     <div className="grid gap-3">
                         {filtered.map(s=><div key={s.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
-                            <div><div className="font-bold">{s.name}</div><div className="text-xs text-gray-400">{s.school_id}</div><div className="text-xs font-bold text-indigo-500 mt-1">{s.class ? \`Class \${s.class}\` : 'No Class'} {s.section && \` - \${s.section}\`}</div></div>
+                            {/* FIX: Added Roll Number Display */}
+                            <div><div className="font-bold">{s.name} <span className="text-gray-400 font-normal text-xs ml-1">(Roll: {s.roll || 'N/A'})</span></div><div className="text-xs text-gray-400">{s.school_id}</div><div className="text-xs font-bold text-indigo-500 mt-1">{s.class ? `Class ${s.class}` : 'No Class'} {s.section && ` - ${s.section}`}</div></div>
                             <div className="font-bold text-green-500">{Math.round(s.avg_score||0)}%</div>
                         </div>)}
                         {filtered.length === 0 && <div className="text-center text-gray-400 py-10">No students found</div>}
@@ -1031,6 +1032,9 @@ function getHtml() {
             if(!exam) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400">Loading Exam...</div>;
             const settings = JSON.parse(exam.exam.settings || '{}');
 
+            // FIX: Handle Dashboard Mode inside Exam App
+            if(mode === 'dashboard') return <StudentPortal onBack={() => setMode('identify')} />;
+
             if(mode === 'identify') return (
                 <div className="min-h-screen bg-indigo-500 flex items-center justify-center p-6">
                     <div className="bg-white w-full max-w-sm p-8 rounded-3xl text-center anim-pop shadow-2xl">
@@ -1050,6 +1054,12 @@ function getHtml() {
                                 }
                             } else setMode('register');
                         }} className="w-full bg-black text-white p-4 rounded-xl font-bold">Next</button>
+                        
+                        {/* FIX: Added Dashboard Login Option */}
+                        <div className="mt-6 border-t border-gray-100 pt-4">
+                            <p className="text-xs text-gray-400 font-bold mb-2">Want to check results?</p>
+                            <button onClick={() => setMode('dashboard')} className="text-indigo-500 font-bold text-sm hover:underline">Login to Student Dashboard</button>
+                        </div>
                     </div>
                 </div>
             );
@@ -1139,10 +1149,11 @@ function getHtml() {
                              <button onClick={() => setShowReview(!showReview)} className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl font-bold flex justify-between items-center hover:bg-slate-700 transition">
                                 <span>See Correct Answers</span>
                                 {/* FIX: Escaped backticks (\`) and escaped dollar sign (\$) for the template literal below */}
-                                <span className={\`transform transition \${showReview ? 'rotate-180' : ''}\`}>▼</span>
+                                <span className={`transform transition ${showReview ? 'rotate-180' : ''}`}>▼</span>
                             </button>
                             
-                            <button onClick={() => window.location.href = window.location.origin + '/#student'} className="w-full bg-orange-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-orange-500/20 btn-bounce flex items-center justify-center gap-2">
+                            {/* FIX: Direct switch to Dashboard Mode */}
+                            <button onClick={() => setMode('dashboard')} className="w-full bg-orange-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-orange-500/20 btn-bounce flex items-center justify-center gap-2">
                                 <Icons.Users /> See Past Results
                             </button>
                         </div>
