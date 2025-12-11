@@ -28,7 +28,7 @@ export function getHtml() {
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo, Component } = React;
+        const { useState, useEffect, useMemo, Component, useRef } = React;
 
         // --- AUTH HELPER ---
         const apiFetch = async (url, options = {}) => {
@@ -918,9 +918,9 @@ export function getHtml() {
 
         // 5. STUDENT EXAM APP (With Dropdowns & Validation)
         function StudentExamApp({ linkId }) {
-            const [mode, setMode] = useState('identify'); 
-            const [student, setStudent] = useState({ name: '', school_id: '', roll: '', class: '', section: '' }); 
-            const [exam, setExam] = useState(null); 
+            const [mode, setMode] = useState('identify');
+            const [student, setStudent] = useState({ name: '', school_id: '', roll: '', class: '', section: '' });
+            const [exam, setExam] = useState(null);
             const [config, setConfig] = useState({ classes: [], sections: [] });
             
             // Game State
@@ -932,6 +932,19 @@ export function getHtml() {
             const [qTime, setQTime] = useState(0);
             const [totalTime, setTotalTime] = useState(0);
             const [showReview, setShowReview] = useState(false); // New state for review toggle
+            const hasSubmittedRef = useRef(false);
+            const [isSubmitting, setIsSubmitting] = useState(false);
+
+            const normalizeStudent = (data) => ({
+                school_id: (data.school_id || '').trim(),
+                name: (data.name || '').trim(),
+                roll: (data.roll || '').trim(),
+                class: (data.class || '').trim(),
+                section: (data.section || '').trim(),
+            });
+
+            const isProfileComplete = (data) =>
+                data.school_id && data.name && data.roll && data.class && data.section;
 
             useEffect(() => { 
                 // FIX: Escaped backticks for fetching exams to prevent build error
@@ -969,36 +982,55 @@ export function getHtml() {
             };
 
             const finish = async () => {
+                if (hasSubmittedRef.current || isSubmitting) return;
+
+                const normalizedStudent = normalizeStudent(student);
+                setStudent(normalizedStudent);
+
+                if (!isProfileComplete(normalizedStudent)) {
+                    alert("Please complete your name, roll, class, and section before submitting.");
+                    setMode('register');
+                    return;
+                }
+
+                hasSubmittedRef.current = true;
+                setIsSubmitting(true);
+
                 const finalAnswers = {};
                 exam.questions.forEach(q => {
                     finalAnswers[q.id] = answers[q.id];
                 });
 
-                localStorage.setItem('student_id', student.school_id);
+                localStorage.setItem('student_id', normalizedStudent.school_id);
 
                 // Security: Send raw answers to backend, let backend calculate score
-                const res = await fetch('/api/submit', { 
-                    method: 'POST', 
-                    body: JSON.stringify({ 
-                        link_id: linkId, 
-                        student, 
+                const res = await fetch('/api/submit', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        link_id: linkId,
+                        student: normalizedStudent,
                         answers: finalAnswers // Only sending IDs of selected choices
-                    }) 
+                    })
                 });
-                
-                if(!res.ok) return alert("Error Saving Result! Please try again or contact teacher.");
-                
+
+                if(!res.ok) {
+                    hasSubmittedRef.current = false;
+                    setIsSubmitting(false);
+                    return alert("Error Saving Result! Please try again or contact teacher.");
+                }
+
                 const data = await res.json();
-                
+
                 // Update local state with server results
                 setScore(data.score);
                 setResultDetails(data.details);
                 
                 if((data.score/data.total) > 0.6) confetti();
 
-                const histRes = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: student.school_id }) }).then(r => r.json());
+                const histRes = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: normalizedStudent.school_id }) }).then(r => r.json());
                 if (histRes.found) setExamHistory(histRes.history.filter(h => h.exam_id === exam.exam.id));
                 setMode('summary');
+                setIsSubmitting(false);
             };
 
             const startGame = () => {
@@ -1006,9 +1038,18 @@ export function getHtml() {
                  if (!exam.questions || exam.questions.length === 0) {
                      return alert("This exam has no questions added yet. Please contact the teacher.");
                  }
-                 setMode('game'); 
+
+                 const normalizedStudent = normalizeStudent(student);
+                 setStudent(normalizedStudent);
+                 if (!isProfileComplete(normalizedStudent)) {
+                     return alert("Please complete your name, roll number, class, and section to start.");
+                 }
+
+                 hasSubmittedRef.current = false;
+                 setIsSubmitting(false);
+                 setMode('game');
                  const settings = JSON.parse(exam.exam.settings || '{}');
-                 if(settings.timerMode==='total') setTotalTime((settings.timerValue||10)*60); 
+                 if(settings.timerMode==='total') setTotalTime((settings.timerValue||10)*60);
                  if(settings.timerMode==='question') setQTime(settings.timerValue||30);
             };
 
@@ -1022,17 +1063,17 @@ export function getHtml() {
                     <div className="bg-white w-full max-w-sm p-8 rounded-3xl text-center anim-pop shadow-2xl">
                         <h1 className="text-2xl font-bold mb-4">Join Class</h1>
                         <input className="w-full bg-gray-100 p-4 rounded-xl font-bold mb-3 outline-none" placeholder="School ID" value={student.school_id} onChange={e=>setStudent({...student, school_id:e.target.value})} />
-                        <button onClick={async()=>{
-                            if(!student.school_id) return alert("Enter ID");
-                            const r = await fetch('/api/student/identify', {method:'POST', body:JSON.stringify({school_id:student.school_id})}).then(x=>x.json());
-                            if(r.found) { 
+                            <button onClick={async()=>{
+                                if(!student.school_id) return alert("Enter ID");
+                                const r = await fetch('/api/student/identify', {method:'POST', body:JSON.stringify({school_id:student.school_id})}).then(x=>x.json());
+                                if(r.found) {
+                                const merged = normalizeStudent({ ...student, ...r.student });
+                                setStudent(merged);
                                 // Check if profile incomplete
-                                if(!r.student.class || !r.student.section) {
-                                    setStudent({...r.student, ...student}); 
+                                if(!isProfileComplete(merged)) {
                                     setMode('update_profile'); // Force update
                                 } else {
-                                    setStudent({...r.student, ...student}); 
-                                    startGame(); 
+                                    startGame();
                                 }
                             } else setMode('register');
                         }} className="w-full bg-black text-white p-4 rounded-xl font-bold">Next</button>
@@ -1070,9 +1111,14 @@ export function getHtml() {
                             </select>
                         </div>
                         
-                        <button onClick={()=>{ 
-                            if(!student.class || !student.section || (mode === 'register' && (!student.name || !student.roll))) return alert("Please fill all fields");
-                            startGame(); 
+                        <button onClick={()=>{
+                            const normalizedStudent = normalizeStudent(student);
+                            setStudent(normalizedStudent);
+                            if(!normalizedStudent.class || !normalizedStudent.section ||
+                                (mode === 'register' && (!normalizedStudent.name || !normalizedStudent.roll))) {
+                                return alert("Please fill all fields");
+                            }
+                            startGame();
                         }} className="w-full bg-indigo-600 text-white p-3 rounded-xl font-bold">Start Exam</button>
                     </div>
                 </div>
