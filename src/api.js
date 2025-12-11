@@ -295,6 +295,18 @@ export async function handleApi(request, env, path, url) {
 
     if (path === '/api/submit' && method === 'POST') {
       const { link_id, student, answers } = await request.json();
+      if (!student || !student.school_id || !student.name || !student.roll || !student.class || !student.section) {
+        return Response.json({ error: "Incomplete student profile" }, { status: 400 });
+      }
+
+      const normalizedStudent = {
+        school_id: String(student.school_id).trim(),
+        name: String(student.name).trim(),
+        roll: String(student.roll).trim(),
+        class: String(student.class).trim(),
+        section: String(student.section).trim(),
+      };
+
       const exam = await env.DB.prepare("SELECT id FROM exams WHERE link_id = ?").bind(link_id).first();
       if (!exam) return Response.json({ error: "Invalid Exam" });
 
@@ -319,26 +331,26 @@ export async function handleApi(request, env, path, url) {
         });
       });
 
-      let studentRecord = await env.DB.prepare("SELECT id FROM students WHERE school_id = ?").bind(student.school_id).first();
+      let studentRecord = await env.DB.prepare("SELECT id FROM students WHERE school_id = ?").bind(normalizedStudent.school_id).first();
       if (!studentRecord) {
         try {
           const res = await env.DB.prepare("INSERT INTO students (school_id, name, roll, class, section) VALUES (?, ?, ?, ?, ?)")
-            .bind(student.school_id, student.name, student.roll, student.class || null, student.section || null).run();
+            .bind(normalizedStudent.school_id, normalizedStudent.name, normalizedStudent.roll, normalizedStudent.class || null, normalizedStudent.section || null).run();
           studentRecord = { id: res.meta.last_row_id };
         } catch (e) {
           try { await env.DB.prepare("ALTER TABLE students ADD COLUMN class TEXT").run(); } catch (err) {}
           try { await env.DB.prepare("ALTER TABLE students ADD COLUMN section TEXT").run(); } catch (err) {}
           const res = await env.DB.prepare("INSERT INTO students (school_id, name, roll, class, section) VALUES (?, ?, ?, ?, ?)")
-            .bind(student.school_id, student.name, student.roll, student.class || null, student.section || null).run();
+            .bind(normalizedStudent.school_id, normalizedStudent.name, normalizedStudent.roll, normalizedStudent.class || null, normalizedStudent.section || null).run();
           studentRecord = { id: res.meta.last_row_id };
         }
       } else {
         try {
           await env.DB.prepare("UPDATE students SET name = ?, roll = ?, class = ?, section = ? WHERE id = ?")
-            .bind(student.name, student.roll, student.class || null, student.section || null, studentRecord.id).run();
+            .bind(normalizedStudent.name, normalizedStudent.roll, normalizedStudent.class || null, normalizedStudent.section || null, studentRecord.id).run();
         } catch (e) {
           await env.DB.prepare("UPDATE students SET name = ?, roll = ?, class = ?, section = ? WHERE id = ?")
-            .bind(student.name, student.roll, student.class || null, student.section || null, studentRecord.id).run();
+            .bind(normalizedStudent.name, normalizedStudent.roll, normalizedStudent.class || null, normalizedStudent.section || null, studentRecord.id).run();
         }
       }
 
