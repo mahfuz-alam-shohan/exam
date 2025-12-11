@@ -100,7 +100,7 @@ export function getHtml() {
         const ToastContainer = ({ toasts }) => (
             <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 flex flex-col gap-2 w-full max-w-xs px-4">
                 {toasts.map(t => (
-                    <div key={t.id} className={\`p-3 rounded-2xl shadow-xl text-center text-sm font-bold flex items-center justify-center gap-2 anim-pop border-2 \${t.type==='error'?'bg-red-50 border-red-200 text-red-600':'bg-white border-green-200 text-green-600'}\`}>
+                    <div key={t.id} className={`p-3 rounded-2xl shadow-xl text-center text-sm font-bold flex items-center justify-center gap-2 anim-pop border-2 ${t.type==='error'?'bg-red-50 border-red-200 text-red-600':'bg-white border-green-200 text-green-600'}`}>
                         {t.msg}
                     </div>
                 ))}
@@ -108,8 +108,8 @@ export function getHtml() {
         );
 
         const Toggle = ({ checked, onChange }) => (
-            <button onClick={() => onChange(!checked)} className={\`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none \${checked ? 'bg-green-400' : 'bg-gray-200'}\`}>
-                <span className={\`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform \${checked ? 'translate-x-6' : 'translate-x-1'}\`} />
+            <button onClick={() => onChange(!checked)} className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none ${checked ? 'bg-green-400' : 'bg-gray-200'}`}>
+                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
         );
 
@@ -179,7 +179,7 @@ export function getHtml() {
                                             <h4 className="font-bold text-slate-800 text-sm">Attempt #{selectedExam.attempts.length - i}</h4>
                                             <p className="text-xs text-gray-400 font-bold">{new Date(h.timestamp).toLocaleString()}</p>
                                         </div>
-                                        <div className={\`text-lg font-black \${ (h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400' }\`}>{h.score}/{h.total}</div>
+                                        <div className={`text-lg font-black ${ (h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400' }`}>{h.score}/{h.total}</div>
                                     </div>
                                 ))}
                             </div>
@@ -244,7 +244,7 @@ export function getHtml() {
                     </div>
                     <div className="p-4 max-w-2xl mx-auto pb-20">
                         <h3 className="font-bold text-2xl mb-1 text-center">{result.name}</h3>
-                        <p className="text-center text-gray-400 mb-6 font-bold">{result.roll ? \`Roll: \${result.roll}\` : ''} {result.timestamp && \` • \${new Date(result.timestamp).toLocaleString()}\`}</p>
+                        <p className="text-center text-gray-400 mb-6 font-bold">{result.roll ? `Roll: ${result.roll}` : ''} {result.timestamp && ` • ${new Date(result.timestamp).toLocaleString()}`}</p>
                         
                         <div className="flex justify-center gap-4 mb-8">
                             <div className="bg-green-50 text-green-600 px-4 py-2 rounded-xl font-bold border border-green-100">Score: {result.score}/{result.total}</div>
@@ -253,12 +253,12 @@ export function getHtml() {
 
                         <div className="space-y-4">
                             {JSON.parse(result.details || '[]').map((d,i)=>(
-                                <div key={i} className={\`p-4 rounded-2xl border \${d.isCorrect?'bg-green-50/50 border-green-200':'bg-red-50/50 border-red-200'}\`}>
+                                <div key={i} className={`p-4 rounded-2xl border ${d.isCorrect?'bg-green-50/50 border-green-200':'bg-red-50/50 border-red-200'}`}>
                                     <div className="font-bold text-gray-800 mb-2">Q{i+1}: {d.qText}</div>
                                     <div className="text-sm space-y-1">
                                         <div className="flex items-start gap-2">
                                             <span className="font-bold min-w-[60px] text-gray-500">Student:</span> 
-                                            <span className={\`font-bold \${d.isCorrect ? 'text-green-500' : 'text-red-500'}\`}>{d.selectedText}</span>
+                                            <span className={`font-bold ${d.isCorrect ? 'text-green-500' : 'text-red-500'}`}>{d.selectedText}</span>
                                         </div>
                                         {!d.isCorrect && (
                                             <div className="flex items-start gap-2">
@@ -345,7 +345,7 @@ export function getHtml() {
                         </div>
                         <nav className="flex-1 px-4 space-y-2 mt-4">
                             {tabs.map(t => (
-                                <button key={t.id} onClick={() => onTabChange(t.id)} className={\`w-full flex items-center gap-4 p-3 rounded-2xl transition-all btn-bounce \${activeTab === t.id ? 'bg-orange-100 text-orange-600 shadow-sm' : 'text-gray-400 hover:bg-gray-50'}\`}>
+                                <button key={t.id} onClick={() => onTabChange(t.id)} className={`w-full flex items-center gap-4 p-3 rounded-2xl transition-all btn-bounce ${activeTab === t.id ? 'bg-orange-100 text-orange-600 shadow-sm' : 'text-gray-400 hover:bg-gray-50'}`}>
                                     {t.icon}
                                     <span className="hidden lg:block font-bold text-sm">{t.label}</span>
                                 </button>
@@ -387,7 +387,7 @@ export function getHtml() {
 
                     <nav className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-orange-100 flex justify-around p-2 z-50 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
                         {tabs.map(t => (
-                            <button key={t.id} onClick={() => onTabChange(t.id)} className={\`flex flex-col items-center p-2 rounded-xl transition w-full \${activeTab === t.id ? 'text-orange-500 bg-orange-50' : 'text-gray-400'}\`}>
+                            <button key={t.id} onClick={() => onTabChange(t.id)} className={`flex flex-col items-center p-2 rounded-xl transition w-full ${activeTab === t.id ? 'text-orange-500 bg-orange-50' : 'text-gray-400'}`}>
                                 {t.icon}
                                 <span className="text-[10px] font-bold mt-1">{t.label}</span>
                             </button>
@@ -409,7 +409,7 @@ export function getHtml() {
                 e.preventDefault();
                 await apiFetch('/api/config/add', {method:'POST', body:JSON.stringify({type, value: val})});
                 setVal(''); load();
-                addToast(\`Added \${type}\`);
+                addToast(`Added ${type}`);
             };
 
             const del = async (id) => {
@@ -474,10 +474,10 @@ export function getHtml() {
             }
 
             const deleteUser = async (id, name) => {
-                if(!confirm(\`Delete \${name}?\`)) return;
+                if(!confirm(`Delete ${name}?`)) return;
                 const endpoint = userType === 'teachers' ? '/api/admin/teacher/delete' : '/api/admin/student/delete';
                 await apiFetch(endpoint, { method: 'POST', body: JSON.stringify({id}) });
-                addToast(\`\${name} Deleted\`);
+                addToast(`${name} Deleted`);
                 fetchList();
             };
 
@@ -511,8 +511,8 @@ export function getHtml() {
                     {activeTab === 'users' && (
                         <div className="anim-enter space-y-6">
                             <div className="flex bg-white p-1 rounded-xl w-fit border border-gray-100 shadow-sm">
-                                <button onClick={()=>setUserType('teachers')} className={\`px-6 py-2 rounded-lg text-sm font-bold transition \${userType==='teachers'?'bg-indigo-50 text-indigo-600':'text-gray-400 hover:bg-gray-50'}\`}>Teachers</button>
-                                <button onClick={()=>setUserType('students')} className={\`px-6 py-2 rounded-lg text-sm font-bold transition \${userType==='students'?'bg-orange-50 text-orange-600':'text-gray-400 hover:bg-gray-50'}\`}>Students</button>
+                                <button onClick={()=>setUserType('teachers')} className={`px-6 py-2 rounded-lg text-sm font-bold transition ${userType==='teachers'?'bg-indigo-50 text-indigo-600':'text-gray-400 hover:bg-gray-50'}`}>Teachers</button>
+                                <button onClick={()=>setUserType('students')} className={`px-6 py-2 rounded-lg text-sm font-bold transition ${userType==='students'?'bg-orange-50 text-orange-600':'text-gray-400 hover:bg-gray-50'}`}>Students</button>
                             </div>
                             {userType === 'teachers' && (
                                 <form onSubmit={addTeacher} className="flex flex-col md:flex-row gap-3 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
@@ -526,7 +526,7 @@ export function getHtml() {
                                 {loading ? <div className="text-center"><Icons.Loading/></div> : list.map(u => (
                                     <div key={u.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
                                         <div className="flex items-center gap-4">
-                                            <div className={\`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white \${userType==='teachers'?'bg-indigo-400':'bg-orange-400'}\`}>{u.name[0]}</div>
+                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${userType==='teachers'?'bg-indigo-400':'bg-orange-400'}`}>{u.name[0]}</div>
                                             <div>
                                                 <div className="font-bold text-slate-800">{u.name}</div>
                                                 <div className="text-xs text-gray-400 font-mono">{u.username || u.school_id}</div>
@@ -550,7 +550,7 @@ export function getHtml() {
                                      <div key={e.id} onClick={()=>setViewStatsId(e.id)} className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition active:scale-95 group">
                                          <div className="flex justify-between items-start mb-2">
                                              <h3 className="font-bold text-lg text-slate-800 line-clamp-1">{e.title}</h3>
-                                             <div className={\`w-2 h-2 rounded-full \${e.is_active ? 'bg-green-500' : 'bg-red-300'}\`}></div>
+                                             <div className={`w-2 h-2 rounded-full ${e.is_active ? 'bg-green-500' : 'bg-red-300'}`}></div>
                                          </div>
                                          <div className="text-xs text-gray-500 font-bold mb-4">
                                              Created by: <span className="text-indigo-600">{e.teacher_name || 'Unknown Teacher'}</span>
@@ -583,7 +583,7 @@ export function getHtml() {
             
             const loadExams = () => {
                 setLoading(true);
-                apiFetch(\`/api/teacher/exams?teacher_id=\${user.id}\`)
+                apiFetch(`/api/teacher/exams?teacher_id=${user.id}`)
                     .then(r=>r.json())
                     .then(d=>{
                         setExams(Array.isArray(d)?d:[]);
@@ -631,11 +631,11 @@ export function getHtml() {
                             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 w-full anim-enter pb-20">
                                 {exams.map(e => (
                                     <div key={e.id} className="bg-white p-5 rounded-3xl shadow-sm border border-orange-100 relative group overflow-hidden">
-                                        <div className={\`absolute top-0 left-0 w-2 h-full \${e.is_active ? 'bg-green-400' : 'bg-gray-300'}\`}></div>
+                                        <div className={`absolute top-0 left-0 w-2 h-full ${e.is_active ? 'bg-green-400' : 'bg-gray-300'}`}></div>
                                         <div className="pl-4">
                                             <div className="flex justify-between items-start mb-2"><h3 className="font-bold text-lg text-slate-800 line-clamp-1">{e.title}</h3><button onClick={()=>del(e.id)} className="text-gray-300 hover:text-red-500"><Icons.Trash/></button></div>
                                             <div className="flex justify-between items-center mt-4"><Toggle checked={!!e.is_active} onChange={()=>toggle(e.id, e.is_active)} /><div className="flex gap-2"><button onClick={() => navigateTo('create', e.id)} className="bg-orange-50 text-orange-600 p-2 rounded-xl"><Icons.Edit /></button><button onClick={() => navigateTo('stats', e.id)} className="bg-blue-50 text-blue-600 p-2 rounded-xl"><Icons.Chart /></button></div></div>
-                                            <button onClick={() => { navigator.clipboard.writeText(\`\${window.location.origin}/?exam=\${e.link_id}\`); addToast("Link Copied!"); }} className="w-full mt-4 bg-gray-50 text-gray-600 text-xs font-bold py-2 rounded-xl hover:bg-gray-100">Copy Link</button>
+                                            <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/?exam=${e.link_id}`); addToast("Link Copied!"); }} className="w-full mt-4 bg-gray-50 text-gray-600 text-xs font-bold py-2 rounded-xl hover:bg-gray-100">Copy Link</button>
                                         </div>
                                     </div>
                                 ))}
@@ -684,7 +684,7 @@ export function getHtml() {
                     <div className="grid gap-3">
                         {filtered.map(s=><div key={s.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
                             <div>
-                                <div className="font-bold">{s.name}</div><div className="text-xs text-gray-400">{s.school_id}</div><div className="text-xs font-bold text-indigo-500 mt-1">{s.class ? \`Class \${s.class}\` : 'No Class'} {s.section && \` - \${s.section}\`}</div></div>
+                                <div className="font-bold">{s.name}</div><div className="text-xs text-gray-400">{s.school_id}</div><div className="text-xs font-bold text-indigo-500 mt-1">{s.class ? `Class ${s.class}` : 'No Class'} {s.section && ` - ${s.section}`}</div></div>
                             <div className="font-bold text-green-500">{Math.round(s.avg_score||0)}%</div>
                         </div>)}
                         {filtered.length === 0 && <div className="text-center text-gray-400 py-10">No students found</div>}
@@ -700,7 +700,7 @@ export function getHtml() {
             const [loading, setLoading] = useState(true);
             
             useEffect(() => { 
-                apiFetch(\`/api/analytics/exam?exam_id=\${examId}\`)
+                apiFetch(`/api/analytics/exam?exam_id=${examId}`)
                     .then(r=>r.json())
                     .then(d=>{ setData(Array.isArray(d)?d:[]); setLoading(false); })
                     .catch(()=>setLoading(false));
@@ -748,7 +748,7 @@ export function getHtml() {
                                             <div className="text-xs text-gray-400">Score: {r.score}/{r.total}</div>
                                         </div>
                                     </div>
-                                    <div className={\`px-3 py-1 rounded-lg font-bold text-sm \${ (r.score/r.total) >= 0.6 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600' }\`}>
+                                    <div className={`px-3 py-1 rounded-lg font-bold text-sm ${ (r.score/r.total) >= 0.6 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600' }`}>
                                         {Math.round((r.score/r.total)*100)}%
                                     </div>
                                 </div>
@@ -765,7 +765,7 @@ export function getHtml() {
                         <div key={group.id} onClick={()=>setSelectedStudent(group)} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center cursor-pointer active:scale-95 transition hover:shadow-sm">
                             <div>
                                 <div className="font-bold text-slate-800">{group.name} {group.roll && <span className="text-gray-400 font-normal text-xs ml-1">(Roll: {group.roll})</span>}</div>
-                                <div className="text-xs text-gray-500 mt-1">{group.class && \`Class \${group.class}\`} {group.section && \`- \${group.section}\`} • <span className="text-indigo-500 font-bold">{group.attempts.length} Tries</span></div>
+                                <div className="text-xs text-gray-500 mt-1">{group.class && `Class ${group.class}`} {group.section && `- ${group.section}`} • <span className="text-indigo-500 font-bold">{group.attempts.length} Tries</span></div>
                             </div>
                             <Icons.Back className="rotate-180 w-5 h-5 text-gray-300" />
                         </div>
@@ -781,7 +781,7 @@ export function getHtml() {
             const [submitting, setSubmitting] = useState(false);
 
             useEffect(() => {
-                if (examId) apiFetch(\`/api/teacher/exam-details?id=\${examId}\`).then(r => r.json()).then(data => {
+                if (examId) apiFetch(`/api/teacher/exam-details?id=${examId}`).then(r => r.json()).then(data => {
                     setMeta({ ...meta, ...JSON.parse(data.exam.settings || '{}'), title: data.exam.title });
                     // FIX: Assign unique tempId to loaded questions to prevent "update all" bug
                     setQs(data.questions.map((q, i) => ({ 
@@ -871,7 +871,7 @@ export function getHtml() {
                             tempId: Date.now() + Math.random()
                         }));
                         setQs(prev => [...prev, ...newQs]);
-                        addToast(\`Imported \${newQs.length} questions\`);
+                        addToast(`Imported ${newQs.length} questions`);
                     } catch (err) { addToast("Invalid JSON Format", 'error'); }
                 };
                 reader.readAsText(file);
@@ -906,9 +906,9 @@ export function getHtml() {
                             <div className="p-4 border-b flex justify-between items-center bg-gray-50"><button onClick={() => setActiveQ(null)} className="font-bold text-gray-500">Cancel</button><span className="font-bold">Edit Question</span><button onClick={() => saveQ(activeQ)} className="font-bold text-green-600 bg-green-50 px-4 py-1 rounded-lg">Done</button></div>
                             <div className="flex-1 overflow-y-auto p-6 max-w-2xl mx-auto w-full">
                                 <textarea value={activeQ.text} onChange={e => setActiveQ({ ...activeQ, text: e.target.value })} className="w-full text-xl font-bold outline-none resize-none placeholder-gray-300 mb-6" placeholder="Type question here..." rows="3" autoFocus />
-                                <div className="mb-6"><label className="block w-full"><div className="w-full h-40 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400 cursor-pointer hover:bg-gray-100 relative overflow-hidden">{activeQ.image ? (activeQ.image instanceof File ? <img src={URL.createObjectURL(activeQ.image)} className="h-full w-full object-contain" /> : <div className="text-center"><img src="https://placehold.co/100x100?text=Existing" className="h-20 w-auto opacity-50 mx-auto" /><span className="text-xs font-bold text-green-500 block mt-2">Image Attached</span></div>) : activeQ.image_key ? (<div className="text-center"><img src={\`/img/\${activeQ.image_key}\`} className="h-32 object-contain mx-auto" /></div>) : (<><Icons.Image /><span className="text-xs font-bold mt-2">Add Photo</span></>)}
+                                <div className="mb-6"><label className="block w-full"><div className="w-full h-40 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400 cursor-pointer hover:bg-gray-100 relative overflow-hidden">{activeQ.image ? (activeQ.image instanceof File ? <img src={URL.createObjectURL(activeQ.image)} className="h-full w-full object-contain" /> : <div className="text-center"><img src="https://placehold.co/100x100?text=Existing" className="h-20 w-auto opacity-50 mx-auto" /><span className="text-xs font-bold text-green-500 block mt-2">Image Attached</span></div>) : activeQ.image_key ? (<div className="text-center"><img src={`/img/${activeQ.image_key}`} className="h-32 object-contain mx-auto" /></div>) : (<><Icons.Image /><span className="text-xs font-bold mt-2">Add Photo</span></>)}
                                 {activeQ.image instanceof File && (<div className="absolute bottom-0 left-0 w-full bg-black/50 text-white text-xs p-2 text-center backdrop-blur-sm">{activeQ.image.name} ({(activeQ.image.size/1024).toFixed(1)} KB)</div>)}</div><input type="file" className="hidden" accept="image/*" onChange={e => {if(e.target.files[0]) { setActiveQ({ ...activeQ, image: e.target.files[0] }); }}} /></label>{(activeQ.image || activeQ.image_key) && (<button onClick={()=>setActiveQ({...activeQ, image: null, image_key: null})} className="text-red-500 text-xs font-bold mt-2 flex items-center gap-1 justify-center"><Icons.Trash/> Remove Image</button>)}</div>
-                                <div className="space-y-3">{activeQ.choices.map((c, i) => (<div key={c.id} className="flex items-center gap-3"><div onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => ({ ...x, isCorrect: x.id === c.id })) })} className={\`w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition \${c.isCorrect ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300'}\`}>{c.isCorrect && <span className="font-bold text-sm">✓</span>}</div><input value={c.text} onChange={e => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => x.id === c.id ? { ...x, text: e.target.value } : x) })} className="flex-1 bg-gray-50 p-3 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-orange-200" placeholder={\`Option \${i + 1}\`} /><button onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.filter(x => x.id !== c.id) })} className="text-gray-300 px-2">×</button></div>))}<button onClick={() => setActiveQ({ ...activeQ, choices: [...activeQ.choices, { id: Date.now(), text: '', isCorrect: false }] })} className="text-sm font-bold text-blue-500 mt-2 ml-11">+ Add Option</button></div>
+                                <div className="space-y-3">{activeQ.choices.map((c, i) => (<div key={c.id} className="flex items-center gap-3"><div onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => ({ ...x, isCorrect: x.id === c.id })) })} className={`w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition ${c.isCorrect ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300'}`}>{c.isCorrect && <span className="font-bold text-sm">✓</span>}</div><input value={c.text} onChange={e => setActiveQ({ ...activeQ, choices: activeQ.choices.map(x => x.id === c.id ? { ...x, text: e.target.value } : x) })} className="flex-1 bg-gray-50 p-3 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-orange-200" placeholder={`Option ${i + 1}`} /><button onClick={() => setActiveQ({ ...activeQ, choices: activeQ.choices.filter(x => x.id !== c.id) })} className="text-gray-300 px-2">×</button></div>))}<button onClick={() => setActiveQ({ ...activeQ, choices: [...activeQ.choices, { id: Date.now(), text: '', isCorrect: false }] })} className="text-sm font-bold text-blue-500 mt-2 ml-11">+ Add Option</button></div>
                             </div>
                         </div>
                     )}
@@ -948,7 +948,7 @@ export function getHtml() {
 
             useEffect(() => { 
                 // FIX: Escaped backticks for fetching exams to prevent build error
-                fetch(\`/api/exam/get?link_id=\${linkId}\`).then(r=>r.json()).then(d => {
+                fetch(`/api/exam/get?link_id=${linkId}`).then(r=>r.json()).then(d => {
                     if(!d.exam?.is_active) return alert("Exam Closed");
                     setExam(d);
                     const classes = [...new Set(d.config.filter(c=>c.type==='class').map(c=>c.value))];
@@ -1120,6 +1120,7 @@ export function getHtml() {
                 </div>
             );
 
+
             if(mode === 'game') {
                 // FIX: Add safety check to ensure question exists before rendering
                 const currentQuestion = exam.questions[qIdx];
@@ -1135,65 +1136,106 @@ export function getHtml() {
                     );
                 }
 
+                const progress = Math.round(((qIdx + 1) / exam.questions.length) * 100);
+
                 return (
-                    <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-6">
-                        <div className="w-full max-w-md flex justify-between items-center mb-8">
-                            <div className="font-bold text-slate-500 uppercase text-xs tracking-widest">Question {qIdx+1}/{exam.questions.length}</div>
-                            <div className={\`text-xl font-mono font-bold \${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}\`}>
-                                {settings.timerMode === 'question' ? qTime : Math.floor(totalTime/60) + ':' + (totalTime%60).toString().padStart(2,'0')}
+                    <div className="min-h-screen bg-gradient-to-b from-orange-50 via-white to-indigo-50 text-slate-900 flex flex-col items-center p-6">
+                        <div className="w-full max-w-3xl">
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-white shadow-inner flex items-center justify-center text-orange-500 font-black">{qIdx+1}</div>
+                                    <div>
+                                        <p className="text-xs font-bold text-slate-400 uppercase">Question</p>
+                                        <p className="text-lg font-black">{qIdx+1} of {exam.questions.length}</p>
+                                    </div>
+                                </div>
+                                <div className={`px-4 py-2 rounded-full text-sm font-black shadow-sm border ${ (settings.timerMode==='question'?qTime:totalTime)<10 ? 'bg-red-50 text-red-500 border-red-100 animate-pulse' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
+                                    ⏰ {settings.timerMode === 'question' ? `${qTime}s` : `${Math.floor(totalTime/60)}:${(totalTime%60).toString().padStart(2,'0')}`}
+                                </div>
+                            </div>
+
+                            <div className="h-2 rounded-full bg-white shadow-inner overflow-hidden mb-6">
+                                <div className="h-full bg-gradient-to-r from-orange-400 via-pink-400 to-indigo-500 transition-all" style={{ width: `${progress}%` }} />
                             </div>
                         </div>
-                        <div className="w-full max-w-md flex-1 flex flex-col justify-center">
-                            <div className="bg-white text-slate-900 p-6 rounded-3xl mb-6 text-center shadow-2xl">
-                                {currentQuestion.image_key && <img src={\`/img/\${currentQuestion.image_key}\`} className="h-40 mx-auto object-contain mb-4" />}
-                                <h2 className="text-xl font-bold">{currentQuestion.text}</h2>
+
+                        <div className="w-full max-w-3xl flex-1 grid lg:grid-cols-[1.3fr_1fr] gap-6 items-start">
+                            <div className="bg-white/80 backdrop-blur rounded-3xl shadow-xl border border-orange-100/70 p-6 lg:p-8">
+                                {currentQuestion.image_key && (
+                                    <div className="rounded-2xl overflow-hidden bg-orange-50 border border-orange-100 mb-6 flex items-center justify-center">
+                                        <img src={`/img/${currentQuestion.image_key}`} className="h-56 w-full object-contain" />
+                                    </div>
+                                )}
+                                <h2 className="text-2xl lg:text-3xl font-black text-slate-900 leading-tight">{currentQuestion.text}</h2>
+                                <p className="mt-2 text-sm font-medium text-slate-500">Pick the best answer to keep your streak alive!</p>
                             </div>
+
                             <div className="grid grid-cols-1 gap-3">
-                                {JSON.parse(currentQuestion.choices).map(c => (
-                                    <button key={c.id} onClick={()=>{ setAnswers({...answers, [currentQuestion.id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }} className={\`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 \${answers[currentQuestion.id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}\`}>
-                                        {c.text}
-                                    </button>
-                                ))}
+                                {JSON.parse(currentQuestion.choices).map(c => {
+                                    const isSelected = answers[currentQuestion.id]===c.id;
+                                    return (
+                                        <button
+                                            key={c.id}
+                                            onClick={()=>{ setAnswers({...answers, [currentQuestion.id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }}
+                                            className={`group p-5 rounded-2xl text-left font-bold transition transform active:scale-95 border ${isSelected ? 'bg-gradient-to-r from-indigo-500 to-indigo-600 text-white shadow-lg shadow-indigo-300 border-indigo-500' : 'bg-white/90 text-slate-800 border-orange-100 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-lg'}`}
+                                        >
+                                            <div className="flex items-start gap-3">
+                                                <span className={`mt-1 w-8 h-8 flex items-center justify-center rounded-full border font-black ${isSelected ? 'bg-white/20 border-white text-white' : 'border-indigo-100 text-indigo-400'}`}>{String.fromCharCode(65 + JSON.parse(currentQuestion.choices).findIndex(x=>x.id===c.id))}</span>
+                                                <span className="leading-relaxed">{c.text}</span>
+                                            </div>
+                                        </button>
+                                    );
+                                })}
                             </div>
-                            {settings.timerMode === 'total' && <div className="mt-8 flex justify-end"><button onClick={next} className="px-6 py-2 bg-white text-black rounded-lg font-bold">Next</button></div>}
+
+                            {settings.timerMode === 'total' && (
+                                <div className="lg:col-span-2 flex justify-end mt-4">
+                                    <button onClick={next} className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-black shadow-md shadow-indigo-200 hover:-translate-y-0.5 transition">Next question</button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 );
             }
 
             if(mode === 'summary') return (
-                <div className="min-h-screen bg-slate-900 text-white p-6 overflow-y-auto">
-                    <div className="max-w-2xl mx-auto space-y-6 pb-20">
+                <div className="min-h-screen bg-gradient-to-b from-orange-50 via-white to-sky-50 text-slate-900 p-6 overflow-y-auto">
+                    <div className="max-w-3xl mx-auto space-y-6 pb-20">
                         {/* Score Card */}
-                        <div className="bg-slate-800 p-8 rounded-3xl text-center border border-slate-700 shadow-2xl">
-                            <h2 className="text-3xl font-black mb-2 text-white">Exam Complete!</h2>
+                        <div className="bg-white/80 backdrop-blur p-8 rounded-3xl text-center border border-orange-100 shadow-xl">
+                            <h2 className="text-3xl font-black mb-2 text-slate-900">Exam Complete! 🎉</h2>
                             {/* Stats Grid */}
                             <div className="grid grid-cols-3 gap-3 my-6">
-                                <div className="bg-green-500/10 p-3 rounded-2xl border border-green-500/20">
-                                    <div className="text-2xl md:text-3xl font-black text-green-400">{score}</div>
-                                    <div className="text-[10px] md:text-xs font-bold uppercase text-green-200/50">Correct</div>
+                                <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+                                    <div className="text-2xl md:text-3xl font-black text-emerald-600">{score}</div>
+                                    <div className="text-[10px] md:text-xs font-bold uppercase text-emerald-500/70">Correct</div>
                                 </div>
-                                <div className="bg-red-500/10 p-3 rounded-2xl border border-red-500/20">
-                                    <div className="text-2xl md:text-3xl font-black text-red-400">{exam.questions.length - score}</div>
-                                    <div className="text-[10px] md:text-xs font-bold uppercase text-red-200/50">Wrong</div>
+                                <div className="bg-rose-50 p-4 rounded-2xl border border-rose-100">
+                                    <div className="text-2xl md:text-3xl font-black text-rose-500">{exam.questions.length - score}</div>
+                                    <div className="text-[10px] md:text-xs font-bold uppercase text-rose-400/80">Wrong</div>
                                 </div>
-                                <div className="bg-blue-500/10 p-3 rounded-2xl border border-blue-500/20">
-                                    <div className="text-2xl md:text-3xl font-black text-blue-400">{Math.round((score/exam.questions.length)*100)}%</div>
-                                    <div className="text-[10px] md:text-xs font-bold uppercase text-blue-200/50">Score</div>
+                                <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
+                                    <div className="text-2xl md:text-3xl font-black text-indigo-600">{Math.round((score/exam.questions.length)*100)}%</div>
+                                    <div className="text-[10px] md:text-xs font-bold uppercase text-indigo-400/80">Score</div>
                                 </div>
+                            </div>
+
+                            <div className="flex items-center justify-center gap-4 text-sm font-medium text-slate-500">
+                                <span className="px-3 py-2 rounded-full bg-white shadow-inner">⏱️ Time spent: {settings.timerMode==='total' ? `${Math.floor((settings.timerValue*60 - totalTime)/60)}m` : 'Per question pace'}</span>
+                                <span className="px-3 py-2 rounded-full bg-white shadow-inner">📚 Questions answered: {exam.questions.length}</span>
                             </div>
                         </div>
 
-                        {/* Actions */}
-                        <div className="space-y-3">
-                             <button onClick={() => setShowReview(!showReview)} className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl font-bold flex justify-between items-center hover:bg-slate-700 transition">
-                                <span>See Correct Answers</span>
-                                {/* FIX: Escaped backticks (\`) and escaped dollar sign (\$) for the template literal below to prevent build error */}
-                                <span className={\`transform transition \${showReview ? 'rotate-180' : ''}\`}>▼</span>
+                            {/* Actions */}
+                            <div className="space-y-3">
+                                 <button onClick={() => setShowReview(!showReview)} className="w-full bg-white/80 border border-orange-100 p-4 rounded-2xl font-bold flex justify-between items-center shadow-sm hover:shadow-md transition">
+                                <span className="flex items-center gap-2"><span className="text-xl">🔍</span>See Correct Answers</span>
+                                {/* Rotate chevron to reflect review panel state */}
+                                <span className={`transform transition ${showReview ? 'rotate-180' : ''}`}>▼</span>
                             </button>
-                            
+
                             {/* FIX: Direct switch to Dashboard Mode */}
-                            <button onClick={() => setMode('dashboard')} className="w-full bg-orange-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-orange-500/20 btn-bounce flex items-center justify-center gap-2">
+                            <button onClick={() => setMode('dashboard')} className="w-full bg-gradient-to-r from-orange-500 to-pink-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-orange-200 btn-bounce flex items-center justify-center gap-2">
                                 <Icons.Users /> See Past Results
                             </button>
                         </div>
@@ -1203,17 +1245,17 @@ export function getHtml() {
                             <div className="space-y-4 anim-enter">
                                 <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
                                 {resultDetails.map((d, i) => (
-                                    <div key={i} className={\`p-6 rounded-2xl border \${d.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}>
-                                        <div className="font-bold text-lg mb-3">Q{i+1}. {d.qText}</div>
+                                    <div key={i} className={`p-6 rounded-2xl border shadow-sm ${d.isCorrect ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100'}`}>
+                                        <div className="font-bold text-lg mb-3 text-slate-900">Q{i+1}. {d.qText}</div>
                                         <div className="space-y-2">
                                             <div className="flex items-start gap-2">
-                                                <span className="font-bold min-w-[60px] text-gray-500">Student:</span> 
-                                                <span className={\`font-bold \${d.isCorrect ? 'text-green-500' : 'text-red-500'}\`}>{d.selectedText}</span>
+                                                <span className="font-bold min-w-[70px] text-slate-500">Student:</span>
+                                                <span className={`font-bold ${d.isCorrect ? 'text-emerald-600' : 'text-rose-500'}`}>{d.selectedText}</span>
                                             </div>
                                             {!d.isCorrect && (
                                                 <div className="flex items-start gap-2">
-                                                    <span className="font-bold min-w-[60px] text-gray-500">Correct:</span> 
-                                                    <span className="font-bold text-gray-800">{d.correctText}</span>
+                                                    <span className="font-bold min-w-[70px] text-slate-500">Correct:</span>
+                                                    <span className="font-bold text-slate-800">{d.correctText}</span>
                                                 </div>
                                             )}
                                         </div>
@@ -1222,12 +1264,15 @@ export function getHtml() {
                             </div>
                         )}
 
-                        {settings.allowRetakes && (<div className="w-full text-center mt-8"><button onClick={() => window.location.reload()} className="text-indigo-400 font-bold hover:text-indigo-300">Retake Exam</button></div>)}
+                        {settings.allowRetakes && (
+                            <div className="w-full text-center mt-8">
+                                <button onClick={() => window.location.reload()} className="text-indigo-600 font-bold hover:text-indigo-500">Retake Exam</button>
+                            </div>
+                        )}
                     </div>
                 </div>
             );
         }
-
         // --- APP ROOT ---
         function App() {
             const [status, setStatus] = useState(null);
