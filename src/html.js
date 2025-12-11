@@ -1170,12 +1170,12 @@ export function getHtml() {
                                         <p className="text-[10px] uppercase text-gray-400 font-bold">Progress</p>
                                         <p className="text-lg font-black text-slate-800">{progress}%</p>
                                     </div>
-                                    <div className={`${isTimerLow ? 'bg-red-50 border-red-100 text-red-600 animate-pulse' : 'bg-white/80 border-indigo-50 text-indigo-600'} px-4 py-3 rounded-2xl shadow-md border font-black font-mono`}>{timeValue}</div>
+                                    <div className={\`${isTimerLow ? 'bg-red-50 border-red-100 text-red-600 animate-pulse' : 'bg-white/80 border-indigo-50 text-indigo-600'} px-4 py-3 rounded-2xl shadow-md border font-black font-mono\`}>{timeValue}</div>
                                 </div>
                             </div>
 
                             <div className="w-full h-2 bg-white/70 rounded-full shadow-inner overflow-hidden border border-orange-50">
-                                <div style={{ width: `${progress}%` }} className="h-full bg-gradient-to-r from-orange-400 via-pink-400 to-indigo-400 rounded-full transition-all"></div>
+                                <div style={{ width: \`${progress}%\` }} className="h-full bg-gradient-to-r from-orange-400 via-pink-400 to-indigo-400 rounded-full transition-all"></div>
                             </div>
 
                             <div className="bg-white/90 backdrop-blur-xl border border-orange-50 rounded-3xl p-6 shadow-xl flex flex-col gap-4">
@@ -1198,9 +1198,9 @@ export function getHtml() {
                                     {choices.map(c => {
                                         const isActive = answers[currentQuestion.id]===c.id;
                                         return (
-                                            <button key={c.id} onClick={()=>{ setAnswers({...answers, [currentQuestion.id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }} className={`${isActive ? 'bg-gradient-to-r from-orange-100 to-indigo-100 border-orange-200 text-slate-900 shadow-lg shadow-orange-100' : 'bg-white border-gray-100 text-slate-700 hover:-translate-y-1 hover:shadow-md'} p-5 rounded-2xl font-bold text-left transition transform active:scale-95 border shadow-sm`}>
+                                <button key={c.id} onClick={()=>{ setAnswers({...answers, [currentQuestion.id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }} className={\`${isActive ? 'bg-gradient-to-r from-orange-100 to-indigo-100 border-orange-200 text-slate-900 shadow-lg shadow-orange-100' : 'bg-white border-gray-100 text-slate-700 hover:-translate-y-1 hover:shadow-md'} p-5 rounded-2xl font-bold text-left transition transform active:scale-95 border shadow-sm\`}>
                                                 <div className="flex items-center gap-3">
-                                                    <span className={`${isActive ? 'bg-white text-orange-500 shadow' : 'bg-gray-100 text-gray-500'} h-8 w-8 rounded-full flex items-center justify-center text-sm font-black`}>{isActive ? '✓' : String.fromCharCode(65 + choices.findIndex(x => x.id === c.id))}</span>
+                                                    <span className={\`${isActive ? 'bg-white text-orange-500 shadow' : 'bg-gray-100 text-gray-500'} h-8 w-8 rounded-full flex items-center justify-center text-sm font-black\`}>{isActive ? '✓' : String.fromCharCode(65 + choices.findIndex(x => x.id === c.id))}</span>
                                                     <span className="flex-1">{c.text}</span>
                                                 </div>
                                             </button>
@@ -1249,7 +1249,7 @@ export function getHtml() {
                         <div className="space-y-3">
                              <button onClick={() => setShowReview(!showReview)} className="w-full bg-white/90 backdrop-blur-xl border border-orange-50 p-4 rounded-2xl font-bold flex justify-between items-center shadow-sm hover:shadow-md transition">
                                 <span className="text-slate-800">See Correct Answers</span>
-                                <span className={`${showReview ? 'rotate-180' : ''} transform transition`}>▼</span>
+                                  <span className={\`${showReview ? 'rotate-180' : ''} transform transition\`}>▼</span>
                             </button>
 
                             {/* FIX: Direct switch to Dashboard Mode */}
@@ -1263,7 +1263,7 @@ export function getHtml() {
                             <div className="space-y-4 anim-enter bg-white/80 backdrop-blur-xl p-6 rounded-3xl border border-orange-50 shadow-sm">
                                 <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
                                 {resultDetails.map((d, i) => (
-                                    <div key={i} className={`${d.isCorrect ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'} p-5 rounded-2xl border`}>
+                                    <div key={i} className={\`${d.isCorrect ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'} p-5 rounded-2xl border\`}>
                                         <div className="font-bold text-lg mb-3 text-slate-800">Q{i+1}. {d.qText}</div>
                                         <div className="space-y-2 text-sm">
                                             <div className="flex items-start gap-2">
