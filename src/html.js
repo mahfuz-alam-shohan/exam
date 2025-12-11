@@ -1183,7 +1183,7 @@ export function getHtml() {
                                     {currentQuestion.image_key && (
                                         <div className="md:w-48 md:flex-shrink-0 mb-4 md:mb-0">
                                             <div className="bg-orange-50 rounded-2xl p-3 shadow-inner">
-                                                <img src={`/img/${currentQuestion.image_key}`} className="h-40 w-full object-contain rounded-xl" />
+                                                <img src={\`/img/\${currentQuestion.image_key}\`} className="h-40 w-full object-contain rounded-xl" />
                                             </div>
                                         </div>
                                     )}
