@@ -22,9 +22,13 @@ export function getHtml() {
       .animate-spin-slow { animation: spin 2s linear infinite; }
       .no-scrollbar::-webkit-scrollbar { display: none; }
       .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      
+      /* New lively button animations */
+      .btn-bounce:active { transform: scale(0.95); }
+      .glass-panel { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); }
     </style>
 </head>
-<body class="text-slate-800 antialiased selection:bg-orange-200">
+<body class="text-slate-800 antialiased selection:bg-indigo-200">
     <div id="root"></div>
 
     <script type="text/babel">
@@ -34,14 +38,12 @@ export function getHtml() {
         const apiFetch = async (url, options = {}) => {
             const user = JSON.parse(localStorage.getItem('mc_user') || '{}');
             
-            // FIX: Default to JSON, but allow browser to override for FormData
             const headers = { 
                 'Content-Type': 'application/json',
                 ...(user.token ? { 'Authorization': 'Bearer ' + user.token } : {}),
                 ...options.headers 
             };
 
-            // FIX: If sending files/form-data, remove Content-Type so browser sets boundary correctly
             if (options.body instanceof FormData) {
                 delete headers['Content-Type'];
             }
@@ -95,6 +97,8 @@ export function getHtml() {
             Download: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>,
             Loading: () => <svg className="w-5 h-5 animate-spin-slow" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>,
             School: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>,
+            Clock: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+            Bulb: () => <svg className="w-5 h-5 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>,
         };
 
         const ToastContainer = ({ toasts }) => (
@@ -115,7 +119,6 @@ export function getHtml() {
 
         // --- COMPONENTS ---
         
-        // FIX: Reordered Component (StudentPortal defined before StudentExamApp)
         function StudentPortal({ onBack }) {
              const [id, setId] = useState('');
              const [data, setData] = useState(null);
@@ -143,14 +146,15 @@ export function getHtml() {
             }, []);
 
              if(!data) return (
-                <div className="min-h-screen bg-orange-50 flex items-center justify-center p-6">
-                    <div className="bg-white w-full max-w-sm p-8 rounded-3xl shadow-xl text-center anim-pop relative">
-                        <button onClick={onBack} className="absolute top-6 left-6 text-gray-400 font-bold text-sm">Back</button>
-                        <div className="mb-6 mx-auto w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center text-orange-500"><Icons.Logo /></div>
+                <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-orange-50 flex items-center justify-center p-6">
+                    <div className="bg-white w-full max-w-sm p-8 rounded-3xl shadow-xl text-center anim-pop relative border border-white/50">
+                        <button onClick={onBack} className="absolute top-6 left-6 text-gray-400 font-bold text-sm hover:text-gray-600">Back</button>
+                        <div className="mb-6 mx-auto w-20 h-20 bg-gradient-to-tr from-orange-400 to-orange-200 rounded-full flex items-center justify-center text-white shadow-lg"><Icons.Logo /></div>
                         <h1 className="text-2xl font-bold text-slate-800 mb-2">Student Hub</h1>
+                        <p className="text-gray-500 text-xs font-bold mb-6">Enter your School ID to see history</p>
                         <form onSubmit={login}>
-                            <input value={id} onChange={e=>setId(e.target.value)} className="w-full bg-gray-100 p-4 rounded-2xl font-bold text-center text-lg outline-none focus:ring-2 focus:ring-orange-400 mb-4" placeholder="Enter School ID" />
-                            <button className="w-full bg-orange-500 text-white font-bold py-4 rounded-2xl btn-bounce shadow-lg shadow-orange-200">Enter</button>
+                            <input value={id} onChange={e=>setId(e.target.value)} className="w-full bg-gray-50 border border-gray-100 p-4 rounded-2xl font-bold text-center text-lg outline-none focus:ring-2 focus:ring-orange-400 focus:bg-white transition mb-4" placeholder="Enter School ID" />
+                            <button className="w-full bg-slate-800 text-white font-bold py-4 rounded-2xl btn-bounce shadow-xl shadow-slate-200 hover:bg-slate-900 transition">Enter Portal</button>
                         </form>
                     </div>
                 </div>
@@ -166,20 +170,23 @@ export function getHtml() {
 
              if(selectedExam) {
                  return (
-                    <div className="min-h-screen bg-orange-50 pb-safe p-4">
+                    <div className="min-h-screen bg-slate-50 pb-safe p-4">
                         <div className="max-w-lg mx-auto">
-                            <button onClick={()=>setSelectedExam(null)} className="flex items-center gap-2 text-gray-500 font-bold mb-4"><Icons.Back/> Back to Dashboard</button>
-                            <h2 className="text-2xl font-bold text-slate-800 mb-2">{selectedExam.title}</h2>
-                            <p className="text-gray-500 text-sm font-bold mb-6">Your Performance History</p>
+                            <button onClick={()=>setSelectedExam(null)} className="flex items-center gap-2 text-gray-500 font-bold mb-6 hover:text-slate-800 transition"><Icons.Back/> Back to Dashboard</button>
+                            <h2 className="text-3xl font-black text-slate-800 mb-2">{selectedExam.title}</h2>
+                            <p className="text-gray-500 text-sm font-bold mb-6 flex items-center gap-2"><Icons.Chart/> Your Performance History</p>
                             
-                            <div className="space-y-3">
+                            <div className="space-y-4">
                                 {selectedExam.attempts.map((h, i) => (
-                                    <div key={h.id} onClick={()=>setViewDetail(h)} className="bg-white p-5 rounded-2xl shadow-sm border border-orange-50 flex justify-between items-center cursor-pointer active:scale-95 transition">
-                                        <div>
-                                            <h4 className="font-bold text-slate-800 text-sm">Attempt #{selectedExam.attempts.length - i}</h4>
-                                            <p className="text-xs text-gray-400 font-bold">{new Date(h.timestamp).toLocaleString()}</p>
+                                    <div key={h.id} onClick={()=>setViewDetail(h)} className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 flex justify-between items-center cursor-pointer hover:shadow-md transition active:scale-95 group">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center font-bold text-gray-400 text-sm group-hover:bg-indigo-50 group-hover:text-indigo-500 transition">#{selectedExam.attempts.length - i}</div>
+                                            <div>
+                                                <h4 className="font-bold text-slate-800 text-sm">Attempt #{selectedExam.attempts.length - i}</h4>
+                                                <p className="text-xs text-gray-400 font-bold">{new Date(h.timestamp).toLocaleDateString()}</p>
+                                            </div>
                                         </div>
-                                        <div className={\`text-lg font-black \${ (h.score/h.total)>0.7 ? 'text-green-500':'text-orange-400' }\`}>{h.score}/{h.total}</div>
+                                        <div className={\`text-lg font-black px-4 py-1 rounded-xl \${ (h.score/h.total)>0.7 ? 'bg-green-50 text-green-500':'bg-orange-50 text-orange-400' }\`}>{h.score}/{h.total}</div>
                                     </div>
                                 ))}
                             </div>
@@ -189,44 +196,44 @@ export function getHtml() {
              }
 
              return (
-                <div className="min-h-screen bg-orange-50 pb-safe">
-                    <div className="bg-orange-500 p-8 pb-16 rounded-b-[40px] text-white shadow-lg relative overflow-hidden">
+                <div className="min-h-screen bg-slate-50 pb-safe">
+                    <div className="bg-slate-900 p-8 pb-20 rounded-b-[40px] text-white shadow-xl relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500 rounded-full blur-[80px] opacity-20 -translate-y-1/2 translate-x-1/2"></div>
                         <div className="relative z-10">
-                            <div className="flex justify-between items-center mb-6">
+                            <div className="flex justify-between items-center mb-8">
                                 <div className="flex gap-2">
-                                    <button onClick={()=>{localStorage.removeItem('student_id'); setData(null);}} className="bg-white/20 p-2 rounded-xl backdrop-blur-sm text-sm font-bold flex items-center gap-2 hover:bg-white/30 transition"><Icons.Logout/> Logout</button>
-                                    <button onClick={refreshData} className="bg-white/20 p-2 rounded-xl backdrop-blur-sm text-white hover:bg-white/30 transition"><Icons.Refresh/></button>
+                                    <button onClick={()=>{localStorage.removeItem('student_id'); setData(null);}} className="bg-white/10 p-2 rounded-xl backdrop-blur-md text-xs font-bold flex items-center gap-2 hover:bg-white/20 transition text-red-300 border border-white/5"><Icons.Logout/> Logout</button>
                                 </div>
-                                <span className="font-bold opacity-70">My Class</span>
+                                <button onClick={refreshData} className="bg-white/10 p-2 rounded-xl backdrop-blur-md text-white hover:bg-white/20 transition border border-white/5"><Icons.Refresh/></button>
                             </div>
-                            <h1 className="text-3xl font-bold mb-1 truncate">Hi, {data.student.name.split(' ')[0]}!</h1>
-                            <p className="opacity-80 font-bold text-sm tracking-wide">{data.student.school_id} • Class {data.student.class || 'N/A'}</p>
+                            <h1 className="text-4xl font-black mb-2 truncate bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">Hi, {data.student.name.split(' ')[0]}!</h1>
+                            <p className="text-gray-400 font-bold text-sm tracking-wide flex items-center gap-2"><span className="bg-white/10 px-2 py-0.5 rounded text-white">{data.student.school_id}</span> Class {data.student.class || 'N/A'}</p>
                         </div>
                     </div>
-                    <div className="px-6 -mt-10 relative z-20 max-w-lg mx-auto space-y-6">
-                        <div className="bg-white p-6 rounded-3xl shadow-lg flex justify-around text-center">
+                    <div className="px-6 -mt-12 relative z-20 max-w-lg mx-auto space-y-6">
+                        <div className="bg-white p-6 rounded-3xl shadow-xl flex justify-around text-center border border-gray-100">
                             <div>
                                 <div className="text-3xl font-black text-slate-800">{data.history.length}</div>
-                                <div className="text-xs font-bold text-gray-400 uppercase">Exams Taken</div>
+                                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-1">Exams Taken</div>
                             </div>
                             <div className="w-px bg-gray-100"></div>
                             <div>
                                 <div className="text-3xl font-black text-green-500">{Math.round(data.history.reduce((a,b)=>a+(b.score/b.total),0)/data.history.length * 100 || 0)}%</div>
-                                <div className="text-xs font-bold text-gray-400 uppercase">Avg Score</div>
+                                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-1">Avg Score</div>
                             </div>
                         </div>
                         <div className="space-y-4 pb-10">
-                            <div className="flex justify-between items-center px-2">
-                                <h3 className="font-bold text-slate-400 text-xs uppercase">Your Exams</h3>
-                                <button onClick={refreshData} className="text-orange-500 text-xs font-bold">Refresh</button>
-                            </div>
+                            <h3 className="font-bold text-slate-800 text-lg px-2">Your Exams</h3>
                             {examGroups.map(group => (
-                                <div key={group.exam_id} onClick={()=>setSelectedExam(group)} className="bg-white p-5 rounded-2xl shadow-sm border border-orange-50 flex justify-between items-center cursor-pointer active:scale-95 transition">
-                                    <div>
-                                        <h4 className="font-bold text-slate-800">{group.title}</h4>
-                                        <p className="text-xs text-indigo-500 font-bold">{group.attempts.length} Attempts</p>
+                                <div key={group.exam_id} onClick={()=>setSelectedExam(group)} className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 flex justify-between items-center cursor-pointer active:scale-95 transition hover:shadow-lg group">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-500 group-hover:bg-indigo-500 group-hover:text-white transition shadow-sm"><Icons.Trophy className="w-6 h-6"/></div>
+                                        <div>
+                                            <h4 className="font-bold text-slate-800 text-lg">{group.title}</h4>
+                                            <p className="text-xs text-gray-400 font-bold">{group.attempts.length} Attempts</p>
+                                        </div>
                                     </div>
-                                    <Icons.Back className="rotate-180 text-gray-300 w-5 h-5"/>
+                                    <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center text-gray-400 group-hover:translate-x-1 transition"><Icons.Back className="rotate-180 w-4 h-4"/></div>
                                 </div>
                             ))}
                         </div>
@@ -237,35 +244,52 @@ export function getHtml() {
 
         function ResultDetailView({ result, onClose }) {
             return (
-                <div className="fixed inset-0 bg-white z-[60] overflow-y-auto anim-enter">
-                    <div className="sticky top-0 bg-white/95 backdrop-blur border-b border-orange-100 p-4 flex justify-between items-center shadow-sm">
-                        <button onClick={onClose} className="flex items-center gap-2 text-gray-500 font-bold"><Icons.Back/> Back</button>
-                        <span className="font-bold text-lg truncate max-w-[50%]">{result.title || result.name}</span>
+                <div className="fixed inset-0 bg-slate-50 z-[60] overflow-y-auto anim-enter">
+                    <div className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-gray-100 p-4 flex justify-between items-center shadow-sm z-10">
+                        <button onClick={onClose} className="flex items-center gap-2 text-slate-600 font-bold bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-sm hover:bg-gray-50"><Icons.Back/> Back</button>
+                        <span className="font-bold text-sm text-gray-400 uppercase tracking-widest">Result Details</span>
                     </div>
-                    <div className="p-4 max-w-2xl mx-auto pb-20">
-                        <h3 className="font-bold text-2xl mb-1 text-center">{result.name}</h3>
-                        <p className="text-center text-gray-400 mb-6 font-bold">{result.roll ? \`Roll: \${result.roll}\` : ''} {result.timestamp && \` • \${new Date(result.timestamp).toLocaleString()}\`}</p>
+                    <div className="p-6 max-w-2xl mx-auto pb-24">
+                        <div className="text-center mb-8">
+                            <h3 className="font-black text-3xl mb-2 text-slate-800">{result.title || result.name}</h3>
+                            <p className="text-gray-400 font-bold text-sm">{new Date(result.timestamp).toLocaleString()}</p>
+                        </div>
                         
-                        <div className="flex justify-center gap-4 mb-8">
-                            <div className="bg-green-50 text-green-600 px-4 py-2 rounded-xl font-bold border border-green-100">Score: {result.score}/{result.total}</div>
-                            <div className="bg-blue-50 text-blue-600 px-4 py-2 rounded-xl font-bold border border-blue-100">{Math.round((result.score/result.total)*100)}%</div>
+                        <div className="flex justify-center gap-4 mb-10">
+                            <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 text-center min-w-[100px]">
+                                <div className="text-xs font-bold text-gray-400 uppercase mb-1">Score</div>
+                                <div className="text-2xl font-black text-slate-800">{result.score}/{result.total}</div>
+                            </div>
+                            <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 text-center min-w-[100px]">
+                                <div className="text-xs font-bold text-gray-400 uppercase mb-1">Percentage</div>
+                                <div className={\`text-2xl font-black \${(result.score/result.total)>0.6?'text-green-500':'text-orange-500'}\`}>{Math.round((result.score/result.total)*100)}%</div>
+                            </div>
                         </div>
 
                         <div className="space-y-4">
                             {JSON.parse(result.details || '[]').map((d,i)=>(
-                                <div key={i} className={\`p-4 rounded-2xl border \${d.isCorrect?'bg-green-50/50 border-green-200':'bg-red-50/50 border-red-200'}\`}>
-                                    <div className="font-bold text-gray-800 mb-2">Q{i+1}: {d.qText}</div>
-                                    <div className="text-sm space-y-1">
-                                        <div className="flex items-start gap-2">
-                                            <span className="font-bold min-w-[60px] text-gray-500">Student:</span> 
-                                            <span className={\`font-bold \${d.isCorrect ? 'text-green-500' : 'text-red-500'}\`}>{d.selectedText}</span>
-                                        </div>
-                                        {!d.isCorrect && (
-                                            <div className="flex items-start gap-2">
-                                                <span className="font-bold min-w-[60px] text-gray-500">Correct:</span> 
-                                                <span className="font-bold text-gray-800">{d.correctText}</span>
+                                <div key={i} className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+                                    <div className="p-4 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center">
+                                        <span className="font-bold text-slate-800">Question {i+1}</span>
+                                        {d.isCorrect 
+                                            ? <span className="bg-green-100 text-green-700 text-xs font-bold px-2 py-1 rounded-lg flex items-center gap-1"><Icons.Check/> Correct</span>
+                                            : <span className="bg-red-100 text-red-700 text-xs font-bold px-2 py-1 rounded-lg flex items-center gap-1"><Icons.X/> Wrong</span>
+                                        }
+                                    </div>
+                                    <div className="p-5">
+                                        <p className="font-bold text-lg mb-4 text-slate-700">{d.qText}</p>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                            <div className={\`p-3 rounded-xl border-l-4 \${d.isCorrect ? 'bg-green-50 border-green-400' : 'bg-red-50 border-red-400'}\`}>
+                                                <div className="text-xs font-bold text-gray-400 uppercase mb-1">You Selected</div>
+                                                <div className="font-bold text-slate-800">{d.selectedText}</div>
                                             </div>
-                                        )}
+                                            {!d.isCorrect && (
+                                                <div className="p-3 rounded-xl border-l-4 border-green-400 bg-green-50">
+                                                    <div className="text-xs font-bold text-gray-400 uppercase mb-1">Correct Answer</div>
+                                                    <div className="font-bold text-slate-800">{d.correctText}</div>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             ))}
@@ -783,7 +807,6 @@ export function getHtml() {
             useEffect(() => {
                 if (examId) apiFetch(\`/api/teacher/exam-details?id=\${examId}\`).then(r => r.json()).then(data => {
                     setMeta({ ...meta, ...JSON.parse(data.exam.settings || '{}'), title: data.exam.title });
-                    // FIX: Assign unique tempId to loaded questions to prevent "update all" bug
                     setQs(data.questions.map((q, i) => ({ 
                         ...q, 
                         choices: JSON.parse(q.choices),
@@ -892,10 +915,11 @@ export function getHtml() {
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="bg-gray-50 p-3 rounded-2xl"><label className="text-xs font-bold text-gray-400 uppercase">Timer</label><div className="flex gap-2 mt-1"><select value={meta.timerMode} onChange={e => setMeta({ ...meta, timerMode: e.target.value })} className="bg-transparent font-bold text-sm outline-none"><option value="question">Per Q</option><option value="total">Total</option></select><input type="number" value={meta.timerValue} onChange={e => setMeta({ ...meta, timerValue: e.target.value })} className="w-12 bg-white rounded-lg text-center font-bold text-sm" /></div></div>
                                 <div className="bg-gray-50 p-3 rounded-2xl flex items-center justify-between"><span className="text-xs font-bold text-gray-400 uppercase">Back Nav</span><Toggle checked={meta.allowBack} onChange={v => setMeta({ ...meta, allowBack: v })} /></div>
+                                <div className="bg-gray-50 p-3 rounded-2xl flex items-center justify-between col-span-2"><span className="text-xs font-bold text-gray-400 uppercase">Allow Retakes</span><Toggle checked={meta.allowRetakes} onChange={v => setMeta({ ...meta, allowRetakes: v })} /></div>
                             </div>
                             <div>
                                 <div className="flex gap-2 mb-4"><label className="flex items-center gap-2 bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-sm font-bold cursor-pointer hover:bg-indigo-100 transition"><Icons.Upload /> Import JSON<input type="file" className="hidden" accept=".json" onChange={handleJsonImport} /></label><button onClick={downloadTemplate} className="flex items-center gap-2 bg-gray-50 text-gray-500 px-4 py-2 rounded-xl text-sm font-bold hover:bg-gray-100 transition"><Icons.Download /> Example</button></div>
-                                <div className="space-y-3 mb-20">{qs.map((q, i) => (<div key={i} onClick={() => setActiveQ(q)} className="bg-white border border-gray-100 p-4 rounded-2xl shadow-sm flex items-center gap-4 active:scale-95 transition cursor-pointer"><span className="font-bold text-orange-400 bg-orange-50 w-8 h-8 flex items-center justify-center rounded-full text-xs">{i + 1}</span>{/* FIX: Show icon if existing key OR new file exists */}{(q.image_key || q.image) && <Icons.Image />}<div className="flex-1 min-w-0"><p className="font-bold text-sm truncate">{q.text}</p><p className="text-xs text-gray-400">{q.choices.length} options</p></div><button onClick={(e) => { e.stopPropagation(); setQs(qs.filter(x => x !== q)); }} className="text-red-300"><Icons.Trash /></button></div>))}
+                                <div className="space-y-3 mb-20">{qs.map((q, i) => (<div key={i} onClick={() => setActiveQ(q)} className="bg-white border border-gray-100 p-4 rounded-2xl shadow-sm flex items-center gap-4 active:scale-95 transition cursor-pointer"><span className="font-bold text-orange-400 bg-orange-50 w-8 h-8 flex items-center justify-center rounded-full text-xs">{i + 1}</span>{(q.image_key || q.image) && <Icons.Image />}<div className="flex-1 min-w-0"><p className="font-bold text-sm truncate">{q.text}</p><p className="text-xs text-gray-400">{q.choices.length} options</p></div><button onClick={(e) => { e.stopPropagation(); setQs(qs.filter(x => x !== q)); }} className="text-red-300"><Icons.Trash /></button></div>))}
                                     <button onClick={() => setActiveQ({ text: '', choices: [{ id: 1, text: '', isCorrect: false }, { id: 2, text: '', isCorrect: false }], tempId: Date.now() })} className="w-full py-4 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 font-bold text-sm hover:border-orange-300 hover:text-orange-500 transition">+ Add Question</button>
                                 </div>
                             </div>
@@ -916,7 +940,7 @@ export function getHtml() {
             );
         }
 
-        // 5. STUDENT EXAM APP (With Dropdowns & Validation)
+        // 5. STUDENT EXAM APP (Redesigned Light Theme)
         function StudentExamApp({ linkId }) {
             const [mode, setMode] = useState('identify');
             const [student, setStudent] = useState({ name: '', school_id: '', roll: '', class: '', section: '' });
@@ -931,7 +955,7 @@ export function getHtml() {
             const [examHistory, setExamHistory] = useState([]);
             const [qTime, setQTime] = useState(0);
             const [totalTime, setTotalTime] = useState(0);
-            const [showReview, setShowReview] = useState(false); // New state for review toggle
+            const [showReview, setShowReview] = useState(false);
             const hasSubmittedRef = useRef(false);
             const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -947,7 +971,6 @@ export function getHtml() {
                 data.school_id && data.name && data.roll && data.class && data.section;
 
             useEffect(() => { 
-                // FIX: Escaped backticks for fetching exams to prevent build error
                 fetch(\`/api/exam/get?link_id=\${linkId}\`).then(r=>r.json()).then(d => {
                     if(!d.exam?.is_active) return alert("Exam Closed");
                     setExam(d);
@@ -957,7 +980,6 @@ export function getHtml() {
                 }); 
             }, [linkId]);
 
-            // Timer Tick
             useEffect(() => {
                 if(mode !== 'game' || !exam) return;
                 const settings = JSON.parse(exam.exam.settings || '{}');
@@ -1003,13 +1025,12 @@ export function getHtml() {
 
                 localStorage.setItem('student_id', normalizedStudent.school_id);
 
-                // Security: Send raw answers to backend, let backend calculate score
                 const res = await fetch('/api/submit', {
                     method: 'POST',
                     body: JSON.stringify({
                         link_id: linkId,
                         student: normalizedStudent,
-                        answers: finalAnswers // Only sending IDs of selected choices
+                        answers: finalAnswers
                     })
                 });
 
@@ -1020,8 +1041,6 @@ export function getHtml() {
                 }
 
                 const data = await res.json();
-
-                // Update local state with server results
                 setScore(data.score);
                 setResultDetails(data.details);
                 
@@ -1034,7 +1053,6 @@ export function getHtml() {
             };
 
             const startGame = (profile) => {
-                 // FIX: Prevent crash if exam has no questions
                  if (!exam.questions || exam.questions.length === 0) {
                      return alert("This exam has no questions added yet. Please contact the teacher.");
                  }
@@ -1054,175 +1072,211 @@ export function getHtml() {
                  if(settings.timerMode==='question') setQTime(settings.timerValue||30);
             };
 
-            if(!exam) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400">Loading Exam...</div>;
+            if(!exam) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400 bg-sky-50"><div className="flex flex-col items-center gap-2"><Icons.Loading/><span>Loading Exam...</span></div></div>;
             const settings = JSON.parse(exam.exam.settings || '{}');
 
             if(mode === 'dashboard') return <StudentPortal onBack={() => setMode('identify')} />;
 
             if(mode === 'identify') return (
-                <div className="min-h-screen bg-indigo-500 flex items-center justify-center p-6">
-                    <div className="bg-white w-full max-w-sm p-8 rounded-3xl text-center anim-pop shadow-2xl">
-                        <p className="text-xs font-bold text-gray-400 mb-3">Step 1 of 2: Enter your School ID</p>
-                        <input className="w-full bg-gray-100 p-4 rounded-xl font-bold mb-3 outline-none" placeholder="School ID" value={student.school_id} onChange={e=>setStudent({...student, school_id:e.target.value})} />
-                            <button onClick={async()=>{
-                                const trimmedId = (student.school_id || '').trim();
-                                if(!trimmedId) return alert("Enter ID");
-                                const r = await fetch('/api/student/identify', {method:'POST', body:JSON.stringify({school_id:trimmedId})}).then(x=>x.json());
-                                const merged = normalizeStudent({ ...student, school_id: trimmedId, ...(r.found ? r.student : {}) });
-                                setStudent(merged);
-                                if (isProfileComplete(merged)) {
-                                    startGame(merged);
-                                } else {
-                                    setMode('register');
-                                }
-                        }} className="w-full bg-black text-white p-4 rounded-xl font-bold">Continue</button>
+                <div className="min-h-screen bg-gradient-to-br from-sky-50 to-indigo-100 flex items-center justify-center p-6">
+                    <div className="bg-white/80 backdrop-blur-lg border border-white w-full max-w-sm p-8 rounded-[2rem] text-center anim-pop shadow-2xl">
+                        <div className="w-16 h-16 bg-indigo-500 text-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-indigo-200 transform -rotate-6"><Icons.Logo /></div>
+                        <h1 className="text-2xl font-black text-slate-800 mb-2">Welcome!</h1>
+                        <p className="text-sm font-bold text-gray-400 mb-6">Enter your School ID to start</p>
                         
-                        {/* FIX: Added Dashboard Login Option */}
-                        <div className="mt-6 border-t border-gray-100 pt-4">
-                            <p className="text-xs text-gray-400 font-bold mb-2">Want to check results?</p>
-                            <button onClick={() => setMode('dashboard')} className="text-indigo-500 font-bold text-sm hover:underline">Login to Student Dashboard</button>
+                        <input className="w-full bg-white border-2 border-transparent focus:border-indigo-400 p-4 rounded-xl font-bold mb-4 outline-none text-center text-lg shadow-sm transition" placeholder="School ID" value={student.school_id} onChange={e=>setStudent({...student, school_id:e.target.value})} />
+                        
+                        <button onClick={async()=>{
+                            const trimmedId = (student.school_id || '').trim();
+                            if(!trimmedId) return alert("Enter ID");
+                            const r = await fetch('/api/student/identify', {method:'POST', body:JSON.stringify({school_id:trimmedId})}).then(x=>x.json());
+                            const merged = normalizeStudent({ ...student, school_id: trimmedId, ...(r.found ? r.student : {}) });
+                            setStudent(merged);
+                            if (isProfileComplete(merged)) { startGame(merged); } else { setMode('register'); }
+                        }} className="w-full bg-slate-800 text-white p-4 rounded-xl font-bold btn-bounce shadow-xl hover:bg-slate-900 transition mb-6">Continue →</button>
+                        
+                        <div className="border-t border-gray-200 pt-4">
+                            <button onClick={() => setMode('dashboard')} className="text-indigo-500 font-bold text-xs hover:text-indigo-600 transition">View Past Results</button>
                         </div>
                     </div>
                 </div>
             );
 
-            if(mode === 'register' || mode === 'update_profile') return (
-                <div className="min-h-screen bg-indigo-500 flex items-center justify-center p-6">
-                    <div className="bg-white w-full max-w-sm p-8 rounded-3xl anim-pop">
-                        <h1 className="text-xl font-bold mb-4">Step 2: Confirm your info</h1>
-                        <p className="text-xs text-gray-400 mb-4 font-bold">We pre-filled what we could. Complete any missing fields to start.</p>
-
-                        <div className="bg-gray-50 p-3 rounded-xl font-bold text-sm text-gray-500 mb-3">School ID: {student.school_id}</div>
-
-                        <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Full Name" value={student.name || ''} onChange={e=>setStudent({...student, name:e.target.value})} />
-                        <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Roll No" value={student.roll || ''} onChange={e=>setStudent({...student, roll:e.target.value})} />
-
-                        <div className="flex gap-2 mb-4">
-                            <select value={student.class || ''} onChange={e=>setStudent({...student, class:e.target.value})} className="w-full bg-gray-100 p-3 rounded-xl font-bold text-sm outline-none">
-                                <option value="">Select Class</option>
-                                {config.classes.map(c=><option key={c} value={c}>{c}</option>)}
-                            </select>
-                            <select value={student.section || ''} onChange={e=>setStudent({...student, section:e.target.value})} className="w-full bg-gray-100 p-3 rounded-xl font-bold text-sm outline-none">
-                                <option value="">Section</option>
-                                {config.sections.map(s=><option key={s} value={s}>{s}</option>)}
-                            </select>
+            if(mode === 'register') return (
+                <div className="min-h-screen bg-gradient-to-br from-sky-50 to-indigo-100 flex items-center justify-center p-6">
+                    <div className="bg-white/90 backdrop-blur-lg border border-white w-full max-w-sm p-8 rounded-[2rem] anim-pop shadow-2xl">
+                        <div className="flex items-center gap-3 mb-6">
+                            <button onClick={()=>setMode('identify')} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200 transition"><Icons.Back/></button>
+                            <h1 className="text-xl font-black text-slate-800">Your Info</h1>
+                        </div>
+                        
+                        <div className="space-y-3">
+                            <div className="bg-indigo-50 p-3 rounded-xl font-bold text-xs text-indigo-500 text-center uppercase tracking-wide">ID: {student.school_id}</div>
+                            <input className="w-full bg-white border border-gray-100 p-3 rounded-xl font-bold outline-none focus:ring-2 focus:ring-indigo-100" placeholder="Full Name" value={student.name || ''} onChange={e=>setStudent({...student, name:e.target.value})} />
+                            <input className="w-full bg-white border border-gray-100 p-3 rounded-xl font-bold outline-none focus:ring-2 focus:ring-indigo-100" placeholder="Roll No" value={student.roll || ''} onChange={e=>setStudent({...student, roll:e.target.value})} />
+                            <div className="flex gap-2">
+                                <select value={student.class || ''} onChange={e=>setStudent({...student, class:e.target.value})} className="w-full bg-white border border-gray-100 p-3 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-100"><option value="">Class</option>{config.classes.map(c=><option key={c} value={c}>{c}</option>)}</select>
+                                <select value={student.section || ''} onChange={e=>setStudent({...student, section:e.target.value})} className="w-full bg-white border border-gray-100 p-3 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-100"><option value="">Section</option>{config.sections.map(s=><option key={s} value={s}>{s}</option>)}</select>
+                            </div>
                         </div>
                         
                         <button onClick={()=>{
                             const normalizedStudent = normalizeStudent(student);
                             setStudent(normalizedStudent);
-                            if(!isProfileComplete(normalizedStudent)) {
-                                return alert("Please fill all fields");
-                            }
+                            if(!isProfileComplete(normalizedStudent)) { return alert("Please fill all fields"); }
                             startGame();
-                        }} className="w-full bg-indigo-600 text-white p-3 rounded-xl font-bold">Start Exam</button>
+                        }} className="w-full bg-indigo-600 text-white p-4 rounded-xl font-bold mt-6 btn-bounce shadow-lg shadow-indigo-200">Start Exam</button>
                     </div>
                 </div>
             );
 
             if(mode === 'game') {
-                // FIX: Add safety check to ensure question exists before rendering
                 const currentQuestion = exam.questions[qIdx];
-                if (!currentQuestion) {
-                    return (
-                        <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-6 text-center">
-                            <div>
-                                <h1 className="text-xl font-bold text-red-400 mb-2">Error Loading Question</h1>
-                                <p className="text-gray-400 mb-4">The question data seems to be missing or invalid.</p>
-                                <button onClick={() => window.location.reload()} className="bg-white text-slate-900 px-6 py-2 rounded-xl font-bold">Refresh Page</button>
-                            </div>
-                        </div>
-                    );
-                }
+                if (!currentQuestion) return <div className="p-10 text-center">Error</div>;
+
+                const timerVal = settings.timerMode === 'question' ? qTime : totalTime;
+                const isLowTime = timerVal < 10;
 
                 return (
-                    <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-6">
-                        <div className="w-full max-w-md flex justify-between items-center mb-8">
-                            <div className="font-bold text-slate-500 uppercase text-xs tracking-widest">Question {qIdx+1}/{exam.questions.length}</div>
-                            <div className={\`text-xl font-mono font-bold \${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}\`}>
-                                {settings.timerMode === 'question' ? qTime : Math.floor(totalTime/60) + ':' + (totalTime%60).toString().padStart(2,'0')}
+                    <div className="min-h-screen bg-gradient-to-b from-sky-50 to-indigo-50 text-slate-800 flex flex-col items-center relative overflow-hidden">
+                        {/* Header Bar */}
+                        <div className="w-full bg-white/80 backdrop-blur-md border-b border-white p-4 sticky top-0 z-20 shadow-sm">
+                            <div className="max-w-2xl mx-auto flex justify-between items-center">
+                                <div className="flex flex-col">
+                                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Question</span>
+                                    <span className="text-xl font-black text-indigo-600">{qIdx+1} <span className="text-gray-300 text-base">/ {exam.questions.length}</span></span>
+                                </div>
+                                <div className={\`flex items-center gap-2 px-4 py-2 rounded-full font-mono font-bold text-lg transition-colors \${isLowTime ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-slate-100 text-slate-700'}\`}>
+                                    <Icons.Clock />
+                                    {settings.timerMode === 'question' ? qTime : Math.floor(totalTime/60) + ':' + (totalTime%60).toString().padStart(2,'0')}
+                                </div>
                             </div>
+                            {/* Progress Bar */}
+                            <div className="absolute bottom-0 left-0 h-1 bg-indigo-500 transition-all duration-300" style={{width: \`\${((qIdx)/exam.questions.length)*100}%\`}}></div>
                         </div>
-                        <div className="w-full max-w-md flex-1 flex flex-col justify-center">
-                            <div className="bg-white text-slate-900 p-6 rounded-3xl mb-6 text-center shadow-2xl">
-                                {currentQuestion.image_key && <img src={\`/img/\${currentQuestion.image_key}\`} className="h-40 mx-auto object-contain mb-4" />}
-                                <h2 className="text-xl font-bold">{currentQuestion.text}</h2>
+
+                        {/* Question Area */}
+                        <div className="w-full max-w-2xl flex-1 flex flex-col justify-center p-6 z-10">
+                            <div className="bg-white p-8 rounded-[2rem] shadow-xl border border-white mb-6 text-center anim-enter relative">
+                                {currentQuestion.image_key && <img src={\`/img/\${currentQuestion.image_key}\`} className="h-48 mx-auto object-contain mb-6 rounded-xl" />}
+                                <h2 className="text-2xl md:text-3xl font-bold text-slate-800 leading-tight">{currentQuestion.text}</h2>
                             </div>
-                            <div className="grid grid-cols-1 gap-3">
+                            
+                            <div className="grid grid-cols-1 gap-4">
                                 {JSON.parse(currentQuestion.choices).map(c => (
-                                    <button key={c.id} onClick={()=>{ setAnswers({...answers, [currentQuestion.id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }} className={\`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 \${answers[currentQuestion.id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}\`}>
-                                        {c.text}
+                                    <button key={c.id} onClick={()=>{ setAnswers({...answers, [currentQuestion.id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 300); }} 
+                                        className={\`group relative p-5 rounded-2xl font-bold text-left transition-all duration-200 transform active:scale-[0.98] border-2 \${answers[currentQuestion.id]===c.id ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white border-transparent text-slate-600 hover:border-indigo-100 shadow-sm'}\`}>
+                                        <div className="flex items-center gap-4">
+                                            <div className={\`w-8 h-8 rounded-full flex items-center justify-center border-2 transition \${answers[currentQuestion.id]===c.id ? 'border-white bg-white text-indigo-600' : 'border-gray-200 text-gray-300 group-hover:border-indigo-200'}\`}>
+                                                {answers[currentQuestion.id]===c.id && <span className="text-lg">✓</span>}
+                                            </div>
+                                            <span className="text-lg">{c.text}</span>
+                                        </div>
                                     </button>
                                 ))}
                             </div>
-                            {settings.timerMode === 'total' && <div className="mt-8 flex justify-end"><button onClick={next} className="px-6 py-2 bg-white text-black rounded-lg font-bold">Next</button></div>}
+                            
+                            {settings.timerMode === 'total' && (
+                                <div className="mt-8 flex justify-end">
+                                    <button onClick={next} className="px-8 py-3 bg-slate-800 text-white rounded-xl font-bold shadow-lg hover:bg-slate-900 transition flex items-center gap-2">
+                                        Next Question →
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 );
             }
 
             if(mode === 'summary') return (
-                <div className="min-h-screen bg-slate-900 text-white p-6 overflow-y-auto">
-                    <div className="max-w-2xl mx-auto space-y-6 pb-20">
+                <div className="min-h-screen bg-slate-50 overflow-y-auto pb-20">
+                    <div className="bg-white border-b border-gray-200 p-6 text-center sticky top-0 z-30 shadow-sm">
+                        <h2 className="text-2xl font-black text-slate-800">Results Summary</h2>
+                    </div>
+
+                    <div className="max-w-2xl mx-auto p-6 space-y-6">
                         {/* Score Card */}
-                        <div className="bg-slate-800 p-8 rounded-3xl text-center border border-slate-700 shadow-2xl">
-                            <h2 className="text-3xl font-black mb-2 text-white">Exam Complete!</h2>
-                            {/* Stats Grid */}
-                            <div className="grid grid-cols-3 gap-3 my-6">
-                                <div className="bg-green-500/10 p-3 rounded-2xl border border-green-500/20">
-                                    <div className="text-2xl md:text-3xl font-black text-green-400">{score}</div>
-                                    <div className="text-[10px] md:text-xs font-bold uppercase text-green-200/50">Correct</div>
+                        <div className="bg-white p-8 rounded-[2.5rem] text-center shadow-xl border border-white relative overflow-hidden">
+                            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-red-400 via-yellow-400 to-green-400"></div>
+                            <h3 className="text-gray-400 font-bold uppercase tracking-widest text-xs mb-4">Your Final Score</h3>
+                            <div className="relative inline-block">
+                                <svg className="w-40 h-40 transform -rotate-90">
+                                    <circle cx="80" cy="80" r="70" stroke="currentColor" strokeWidth="12" fill="transparent" className="text-gray-100" />
+                                    <circle cx="80" cy="80" r="70" stroke="currentColor" strokeWidth="12" fill="transparent" strokeDasharray={440} strokeDashoffset={440 - (440 * score / exam.questions.length)} className="text-indigo-500 transition-all duration-1000 ease-out" />
+                                </svg>
+                                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
+                                    <span className="text-4xl font-black text-slate-800 block">{score}</span>
+                                    <span className="text-gray-400 font-bold text-xs">/ {exam.questions.length}</span>
                                 </div>
-                                <div className="bg-red-500/10 p-3 rounded-2xl border border-red-500/20">
-                                    <div className="text-2xl md:text-3xl font-black text-red-400">{exam.questions.length - score}</div>
-                                    <div className="text-[10px] md:text-xs font-bold uppercase text-red-200/50">Wrong</div>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-4 mt-8">
+                                <div className="bg-green-50 p-4 rounded-2xl border border-green-100">
+                                    <div className="text-2xl font-black text-green-600">{score}</div>
+                                    <div className="text-xs font-bold text-green-600/60 uppercase">Correct</div>
                                 </div>
-                                <div className="bg-blue-500/10 p-3 rounded-2xl border border-blue-500/20">
-                                    <div className="text-2xl md:text-3xl font-black text-blue-400">{Math.round((score/exam.questions.length)*100)}%</div>
-                                    <div className="text-[10px] md:text-xs font-bold uppercase text-blue-200/50">Score</div>
+                                <div className="bg-red-50 p-4 rounded-2xl border border-red-100">
+                                    <div className="text-2xl font-black text-red-500">{exam.questions.length - score}</div>
+                                    <div className="text-xs font-bold text-red-500/60 uppercase">Wrong</div>
                                 </div>
                             </div>
                         </div>
 
                         {/* Actions */}
-                        <div className="space-y-3">
-                             <button onClick={() => setShowReview(!showReview)} className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl font-bold flex justify-between items-center hover:bg-slate-700 transition">
-                                <span>See Correct Answers</span>
-                                {/* FIX: Escaped backticks (\`) and escaped dollar sign (\$) for the template literal below to prevent build error */}
+                        <div className="flex flex-col gap-3">
+                             <button onClick={() => setShowReview(!showReview)} className="bg-white border border-gray-200 p-4 rounded-2xl font-bold flex justify-between items-center hover:bg-gray-50 transition shadow-sm text-slate-700">
+                                <span className="flex items-center gap-2"><Icons.Bulb/> Review Answers</span>
                                 <span className={\`transform transition \${showReview ? 'rotate-180' : ''}\`}>▼</span>
                             </button>
                             
-                            {/* FIX: Direct switch to Dashboard Mode */}
-                            <button onClick={() => setMode('dashboard')} className="w-full bg-orange-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-orange-500/20 btn-bounce flex items-center justify-center gap-2">
-                                <Icons.Users /> See Past Results
+                            {settings.allowRetakes && (
+                                <button onClick={() => window.location.reload()} className="bg-indigo-600 text-white p-4 rounded-2xl font-bold shadow-lg shadow-indigo-200 btn-bounce flex items-center justify-center gap-2">
+                                    <Icons.Refresh /> Retake Exam
+                                </button>
+                            )}
+                            
+                            <button onClick={() => setMode('dashboard')} className="bg-slate-800 text-white p-4 rounded-2xl font-bold shadow-lg shadow-slate-200 btn-bounce flex items-center justify-center gap-2">
+                                <Icons.Home /> Back to Dashboard
                             </button>
                         </div>
 
-                        {/* Detailed Review (Collapsible) */}
+                        {/* Detailed Review */}
                         {showReview && (
                             <div className="space-y-4 anim-enter">
-                                <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
+                                <div className="flex items-center gap-2 text-gray-400 font-bold text-xs uppercase tracking-wider mb-2 px-2">
+                                    <span className="w-full h-px bg-gray-200"></span> Review <span className="w-full h-px bg-gray-200"></span>
+                                </div>
                                 {resultDetails.map((d, i) => (
-                                    <div key={i} className={\`p-6 rounded-2xl border \${d.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}>
-                                        <div className="font-bold text-lg mb-3">Q{i+1}. {d.qText}</div>
-                                        <div className="space-y-2">
-                                            <div className="flex items-start gap-2">
-                                                <span className="font-bold min-w-[60px] text-gray-500">Student:</span> 
-                                                <span className={\`font-bold \${d.isCorrect ? 'text-green-500' : 'text-red-500'}\`}>{d.selectedText}</span>
-                                            </div>
-                                            {!d.isCorrect && (
-                                                <div className="flex items-start gap-2">
-                                                    <span className="font-bold min-w-[60px] text-gray-500">Correct:</span> 
-                                                    <span className="font-bold text-gray-800">{d.correctText}</span>
+                                    <div key={i} className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+                                        <div className="p-4 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
+                                            <span className="font-bold text-slate-700">Question {i+1}</span>
+                                            {d.isCorrect 
+                                                ? <span className="bg-green-100 text-green-700 text-[10px] font-bold px-2 py-1 rounded-lg uppercase tracking-wider">Correct</span>
+                                                : <span className="bg-red-100 text-red-700 text-[10px] font-bold px-2 py-1 rounded-lg uppercase tracking-wider">Wrong</span>
+                                            }
+                                        </div>
+                                        <div className="p-5">
+                                            <p className="font-bold text-lg mb-4 text-slate-800">{d.qText}</p>
+                                            
+                                            {/* Comparison View */}
+                                            <div className="flex flex-col gap-2">
+                                                <div className={\`p-3 rounded-xl border-l-4 \${d.isCorrect ? 'bg-green-50 border-green-500' : 'bg-red-50 border-red-500'}\`}>
+                                                    <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">You Selected</div>
+                                                    <div className="font-bold text-slate-800">{d.selectedText}</div>
                                                 </div>
-                                            )}
+                                                
+                                                {!d.isCorrect && (
+                                                     <div className="p-3 rounded-xl border-l-4 border-green-500 bg-green-50 mt-1">
+                                                        <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">Correct Answer</div>
+                                                        <div className="font-bold text-slate-800">{d.correctText}</div>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 ))}
                             </div>
                         )}
-
-                        {settings.allowRetakes && (<div className="w-full text-center mt-8"><button onClick={() => window.location.reload()} className="text-indigo-400 font-bold hover:text-indigo-300">Retake Exam</button></div>)}
                     </div>
                 </div>
             );
@@ -1249,7 +1303,6 @@ export function getHtml() {
                 return () => window.removeEventListener('hashchange', checkHash); 
             }, [user]);
 
-            // Persist User
             useEffect(() => { 
                 try { 
                     const u = localStorage.getItem('mc_user'); 
