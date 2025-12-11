@@ -1263,12 +1263,12 @@ export function getHtml() {
                             <div className="space-y-4 anim-enter bg-white/80 backdrop-blur-xl p-6 rounded-3xl border border-orange-50 shadow-sm">
                                 <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
                                 {resultDetails.map((d, i) => (
-                                    <div key={i} className={\`${d.isCorrect ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'} p-5 rounded-2xl border\`}>
+                                    <div key={i} className={\`\${d.isCorrect ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'} p-5 rounded-2xl border\`}> 
                                         <div className="font-bold text-lg mb-3 text-slate-800">Q{i+1}. {d.qText}</div>
                                         <div className="space-y-2 text-sm">
                                             <div className="flex items-start gap-2">
                                                 <span className="font-bold min-w-[70px] text-gray-500">You picked</span>
-                                                <span className={`${d.isCorrect ? 'text-green-600' : 'text-red-600'} font-bold`}>{d.selectedText}</span>
+                                                <span className={\`\${d.isCorrect ? 'text-green-600' : 'text-red-600'} font-bold\`}>{d.selectedText}</span>
                                             </div>
                                             {!d.isCorrect && (
                                                 <div className="flex items-start gap-2">
