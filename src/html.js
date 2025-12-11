@@ -1208,22 +1208,22 @@ export function getHtml() {
                         <div className="scroll-container flex flex-col items-center p-4 pb-8">
                             <div className="w-full max-w-xl flex-1 flex flex-col justify-center">
                                 {/* Question Card */}
-                                <div className="bg-white p-6 rounded-[3rem] shadow-card border-4 border-white mb-6 text-center anim-enter relative overflow-hidden">
-                                    {currentQuestion.image_key && <img src={\`/img/\${currentQuestion.image_key}\`} className="h-48 w-full object-contain mb-6 rounded-2xl bg-gray-50 p-2" />}
-                                    <h2 className="text-2xl md:text-3xl font-black text-slate-700 leading-tight font-kiddy px-2">{currentQuestion.text}</h2>
+                                <div className="bg-white p-6 rounded-[2rem] md:rounded-[3rem] shadow-card border-4 border-white mb-6 text-center anim-enter relative overflow-hidden">
+                                    {currentQuestion.image_key && <img src={\`/img/\${currentQuestion.image_key}\`} className="h-32 md:h-48 w-full object-contain mb-4 md:mb-6 rounded-2xl bg-gray-50 p-2" />}
+                                    <h2 className="text-xl md:text-3xl font-black text-slate-700 leading-tight font-kiddy px-2">{currentQuestion.text}</h2>
                                 </div>
                                 
                                 {/* Answers */}
-                                <div className="grid grid-cols-1 gap-3 w-full">
+                                <div className="grid grid-cols-2 gap-3 w-full">
                                     {JSON.parse(currentQuestion.choices).map(c => (
                                         <button key={c.id} onClick={()=>{ setAnswers({...answers, [currentQuestion.id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 300); }} 
-                                            className={\`group relative p-5 rounded-[2rem] font-bold text-lg text-left transition-all duration-200 transform btn-press border-b-4 \${answers[currentQuestion.id]===c.id ? 'bg-brand border-brand-dark text-white shadow-lg shadow-brand/30 translate-y-1' : 'bg-white border-gray-200 text-slate-600 hover:bg-gray-50'}\`}>
-                                            <div className="flex items-center gap-4">
-                                                <div className={\`w-10 h-10 rounded-2xl flex flex-shrink-0 items-center justify-center font-black text-lg transition \${answers[currentQuestion.id]===c.id ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-400 group-hover:bg-gray-200'}\`}>
+                                            className={\`group relative p-3 md:p-5 rounded-[1.5rem] md:rounded-[2rem] font-bold text-left transition-all duration-200 transform btn-press border-b-4 \${answers[currentQuestion.id]===c.id ? 'bg-brand border-brand-dark text-white shadow-lg shadow-brand/30 translate-y-1' : 'bg-white border-gray-200 text-slate-600 hover:bg-gray-50'}\`}>
+                                            <div className="flex items-center gap-2 md:gap-4 h-full">
+                                                <div className={\`w-8 h-8 md:w-10 md:h-10 rounded-xl md:rounded-2xl flex flex-shrink-0 items-center justify-center font-black text-sm md:text-lg transition \${answers[currentQuestion.id]===c.id ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-400 group-hover:bg-gray-200'}\`}>
                                                     {['A','B','C','D'][JSON.parse(currentQuestion.choices).indexOf(c)]}
                                                 </div>
-                                                <span className="font-kiddy leading-tight">{c.text}</span>
-                                                {answers[currentQuestion.id]===c.id && <div className="ml-auto bg-white text-brand rounded-full p-1"><Icons.Check className="w-4 h-4"/></div>}
+                                                <span className="font-kiddy leading-tight text-sm md:text-lg flex-1">{c.text}</span>
+                                                {answers[currentQuestion.id]===c.id && <div className="bg-white text-brand rounded-full p-0.5 md:p-1 flex-shrink-0"><Icons.Check className="w-3 h-3 md:w-4 md:h-4"/></div>}
                                             </div>
                                         </button>
                                     ))}
@@ -1333,64 +1333,6 @@ export function getHtml() {
                         </div>
                     </div>
                 </div>
-            );
-        }
-
-        // --- APP ROOT ---
-        function App() {
-            const [status, setStatus] = useState(null);
-            const [user, setUser] = useState(null);
-            const [route, setRoute] = useState('landing');
-            const [toasts, setToasts] = useState([]);
-            const linkId = new URLSearchParams(window.location.search).get('exam');
-
-            // Routing
-            useEffect(() => { 
-                const checkHash = () => { 
-                    const h = window.location.hash.slice(1); 
-                    if(h === 'teacher' && user) setRoute('teacher'); 
-                    else if(h === 'student') setRoute('student'); 
-                    else if(h === 'admin' && user?.role === 'super_admin') setRoute('admin'); 
-                    else if(!linkId) setRoute('landing'); 
-                }; 
-                window.addEventListener('hashchange', checkHash); 
-                return () => window.removeEventListener('hashchange', checkHash); 
-            }, [user]);
-
-            useEffect(() => { 
-                try { 
-                    const u = localStorage.getItem('mc_user'); 
-                    if(u) setUser(JSON.parse(u)); 
-                } catch(e) {} 
-                apiFetch('/api/system/status').then(r=>r.json()).then(setStatus).catch(e=>setStatus({installed:false, hasAdmin:false})); 
-            }, []);
-
-            const loginUser = (u) => { setUser(u); localStorage.setItem('mc_user', JSON.stringify(u)); window.location.hash = u.role === 'super_admin' ? 'admin' : 'teacher'; };
-            const logoutUser = () => { setUser(null); localStorage.removeItem('mc_user'); window.location.hash = ''; setRoute('landing'); };
-            const addToast = (msg, type='success') => { const id = Date.now(); setToasts(p => [...p, {id, msg, type}]); setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000); };
-
-            if(linkId) return <ErrorBoundary><StudentExamApp linkId={linkId} /></ErrorBoundary>;
-            if(!status) return <div className="min-h-screen flex items-center justify-center font-bold text-brand-light animate-pulse bg-brand">Loading Magic...</div>;
-            if(!status.hasAdmin) return <ErrorBoundary><><Setup onComplete={() => setStatus({hasAdmin:true})} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
-            if(route === 'student') return <ErrorBoundary><StudentPortal onBack={()=>window.location.hash=''} /></ErrorBoundary>;
-            
-            if(user) { 
-                if(user.role === 'super_admin') return <ErrorBoundary><><AdminView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>; 
-                return <ErrorBoundary><><TeacherView user={user} onLogout={logoutUser} addToast={addToast} /><ToastContainer toasts={toasts}/></></ErrorBoundary>; 
-            }
-            
-            if(route === 'login') return <ErrorBoundary><><Login onLogin={loginUser} addToast={addToast} onBack={()=>setRoute('landing')} /><ToastContainer toasts={toasts}/></></ErrorBoundary>;
-            
-            return ( 
-                <div className="min-h-screen bg-brand-light flex flex-col items-center justify-center p-6 text-center blob-bg"> 
-                    <div className="w-32 h-32 bg-white rounded-[2.5rem] shadow-bouncy flex items-center justify-center text-brand mb-8 anim-pop border-4 border-white"><Icons.Logo /></div> 
-                    <h1 className="text-5xl font-black text-slate-800 mb-2 font-kiddy">My Class</h1> 
-                    <p className="text-gray-500 font-bold mb-12 text-lg">Super Fun Learning Adventures</p> 
-                    <div className="w-full max-w-xs space-y-4"> 
-                        <button onClick={()=>{window.location.hash='student'; setRoute('student')}} className="w-full bg-brand text-white p-5 rounded-[2rem] font-bold shadow-lg shadow-brand/30 btn-press text-xl">Student Hub</button> 
-                        <button onClick={()=>setRoute('login')} className="w-full bg-white text-slate-600 p-5 rounded-[2rem] font-bold shadow-sm border-2 border-white btn-press">Teacher Login</button> 
-                    </div> 
-                </div> 
             );
         }
 
