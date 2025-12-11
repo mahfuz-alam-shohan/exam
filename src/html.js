@@ -1033,13 +1033,13 @@ export function getHtml() {
                 setIsSubmitting(false);
             };
 
-            const startGame = () => {
+            const startGame = (profile) => {
                  // FIX: Prevent crash if exam has no questions
                  if (!exam.questions || exam.questions.length === 0) {
                      return alert("This exam has no questions added yet. Please contact the teacher.");
                  }
 
-                 const normalizedStudent = normalizeStudent(student);
+                 const normalizedStudent = normalizeStudent(profile || student);
                  setStudent(normalizedStudent);
                  if (!isProfileComplete(normalizedStudent)) {
                      setMode('register');
@@ -1070,7 +1070,11 @@ export function getHtml() {
                                 const r = await fetch('/api/student/identify', {method:'POST', body:JSON.stringify({school_id:trimmedId})}).then(x=>x.json());
                                 const merged = normalizeStudent({ ...student, school_id: trimmedId, ...(r.found ? r.student : {}) });
                                 setStudent(merged);
-                                setMode('register');
+                                if (isProfileComplete(merged)) {
+                                    startGame(merged);
+                                } else {
+                                    setMode('register');
+                                }
                         }} className="w-full bg-black text-white p-4 rounded-xl font-bold">Continue</button>
                         
                         {/* FIX: Added Dashboard Login Option */}
