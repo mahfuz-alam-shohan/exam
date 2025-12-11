@@ -1042,6 +1042,7 @@ export function getHtml() {
                  const normalizedStudent = normalizeStudent(student);
                  setStudent(normalizedStudent);
                  if (!isProfileComplete(normalizedStudent)) {
+                     setMode('register');
                      return alert("Please complete your name, roll number, class, and section to start.");
                  }
 
@@ -1061,22 +1062,16 @@ export function getHtml() {
             if(mode === 'identify') return (
                 <div className="min-h-screen bg-indigo-500 flex items-center justify-center p-6">
                     <div className="bg-white w-full max-w-sm p-8 rounded-3xl text-center anim-pop shadow-2xl">
-                        <h1 className="text-2xl font-bold mb-4">Join Class</h1>
+                        <p className="text-xs font-bold text-gray-400 mb-3">Step 1 of 2: Enter your School ID</p>
                         <input className="w-full bg-gray-100 p-4 rounded-xl font-bold mb-3 outline-none" placeholder="School ID" value={student.school_id} onChange={e=>setStudent({...student, school_id:e.target.value})} />
                             <button onClick={async()=>{
-                                if(!student.school_id) return alert("Enter ID");
-                                const r = await fetch('/api/student/identify', {method:'POST', body:JSON.stringify({school_id:student.school_id})}).then(x=>x.json());
-                                if(r.found) {
-                                const merged = normalizeStudent({ ...student, ...r.student });
+                                const trimmedId = (student.school_id || '').trim();
+                                if(!trimmedId) return alert("Enter ID");
+                                const r = await fetch('/api/student/identify', {method:'POST', body:JSON.stringify({school_id:trimmedId})}).then(x=>x.json());
+                                const merged = normalizeStudent({ ...student, school_id: trimmedId, ...(r.found ? r.student : {}) });
                                 setStudent(merged);
-                                // Check if profile incomplete
-                                if(!isProfileComplete(merged)) {
-                                    setMode('update_profile'); // Force update
-                                } else {
-                                    startGame();
-                                }
-                            } else setMode('register');
-                        }} className="w-full bg-black text-white p-4 rounded-xl font-bold">Next</button>
+                                setMode('register');
+                        }} className="w-full bg-black text-white p-4 rounded-xl font-bold">Continue</button>
                         
                         {/* FIX: Added Dashboard Login Option */}
                         <div className="mt-6 border-t border-gray-100 pt-4">
@@ -1090,15 +1085,13 @@ export function getHtml() {
             if(mode === 'register' || mode === 'update_profile') return (
                 <div className="min-h-screen bg-indigo-500 flex items-center justify-center p-6">
                     <div className="bg-white w-full max-w-sm p-8 rounded-3xl anim-pop">
-                        <h1 className="text-xl font-bold mb-4">{mode === 'register' ? 'New Student' : 'Complete Profile'}</h1>
-                        <p className="text-xs text-gray-400 mb-4 font-bold">Please fill in your details to continue.</p>
-                        
-                        {(mode === 'register' || !student.name || !student.roll) && (
-                            <>
-                                <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Full Name" value={student.name || ''} onChange={e=>setStudent({...student, name:e.target.value})} />
-                                <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Roll No" value={student.roll || ''} onChange={e=>setStudent({...student, roll:e.target.value})} />
-                            </>
-                        )}
+                        <h1 className="text-xl font-bold mb-4">Step 2: Confirm your info</h1>
+                        <p className="text-xs text-gray-400 mb-4 font-bold">We pre-filled what we could. Complete any missing fields to start.</p>
+
+                        <div className="bg-gray-50 p-3 rounded-xl font-bold text-sm text-gray-500 mb-3">School ID: {student.school_id}</div>
+
+                        <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Full Name" value={student.name || ''} onChange={e=>setStudent({...student, name:e.target.value})} />
+                        <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Roll No" value={student.roll || ''} onChange={e=>setStudent({...student, roll:e.target.value})} />
 
                         <div className="flex gap-2 mb-4">
                             <select value={student.class || ''} onChange={e=>setStudent({...student, class:e.target.value})} className="w-full bg-gray-100 p-3 rounded-xl font-bold text-sm outline-none">
@@ -1114,8 +1107,7 @@ export function getHtml() {
                         <button onClick={()=>{
                             const normalizedStudent = normalizeStudent(student);
                             setStudent(normalizedStudent);
-                            if(!normalizedStudent.class || !normalizedStudent.section ||
-                                (mode === 'register' && (!normalizedStudent.name || !normalizedStudent.roll))) {
+                            if(!isProfileComplete(normalizedStudent)) {
                                 return alert("Please fill all fields");
                             }
                             startGame();
