@@ -1214,17 +1214,17 @@ export function getHtml() {
                                 </div>
                                 
                                 {/* Answers */}
-                                <div className="grid grid-cols-1 gap-3 w-full">
+                                <div className="grid grid-cols-2 gap-3 w-full">
                                     {JSON.parse(currentQuestion.choices).map(c => (
                                         <button key={c.id} onClick={()=>{ setAnswers({...answers, [currentQuestion.id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 300); }} 
-                                            className={\`group relative p-5 rounded-[2rem] font-bold text-lg text-left transition-all duration-200 transform btn-press border-b-4 \${answers[currentQuestion.id]===c.id ? 'bg-brand border-brand-dark text-white shadow-lg shadow-brand/30 translate-y-1' : 'bg-white border-gray-200 text-slate-600 hover:bg-gray-50'}\`}>
-                                            <div className="flex items-center gap-4">
-                                                <div className={\`w-10 h-10 rounded-2xl flex flex-shrink-0 items-center justify-center font-black text-lg transition \${answers[currentQuestion.id]===c.id ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-400 group-hover:bg-gray-200'}\`}>
+                                            className={\`group relative p-3 md:p-5 rounded-[1.5rem] md:rounded-[2rem] font-bold text-sm md:text-lg text-left transition-all duration-200 transform btn-press border-b-4 h-full flex flex-col justify-center \${answers[currentQuestion.id]===c.id ? 'bg-brand border-brand-dark text-white shadow-lg shadow-brand/30 translate-y-1' : 'bg-white border-gray-200 text-slate-600 hover:bg-gray-50'}\`}>
+                                            <div className="flex items-center gap-2 md:gap-4 w-full">
+                                                <div className={\`w-8 h-8 md:w-10 md:h-10 rounded-xl md:rounded-2xl flex flex-shrink-0 items-center justify-center font-black text-sm md:text-lg transition \${answers[currentQuestion.id]===c.id ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-400 group-hover:bg-gray-200'}\`}>
                                                     {['A','B','C','D'][JSON.parse(currentQuestion.choices).indexOf(c)]}
                                                 </div>
-                                                <span className="font-kiddy leading-tight">{c.text}</span>
-                                                {answers[currentQuestion.id]===c.id && <div className="ml-auto bg-white text-brand rounded-full p-1"><Icons.Check className="w-4 h-4"/></div>}
+                                                <span className="font-kiddy leading-tight break-words flex-1">{c.text}</span>
                                             </div>
+                                            {answers[currentQuestion.id]===c.id && <div className="absolute top-2 right-2 md:top-4 md:right-4 bg-white text-brand rounded-full p-1 shadow-sm"><Icons.Check className="w-3 h-3 md:w-4 md:h-4"/></div>}
                                         </button>
                                     ))}
                                 </div>
