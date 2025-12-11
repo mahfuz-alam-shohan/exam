@@ -1024,8 +1024,11 @@ export function getHtml() {
                 // Update local state with server results
                 setScore(data.score);
                 setResultDetails(data.details);
-                
-                if((data.score/data.total) > 0.6) confetti();
+
+                if (typeof confetti === 'function') {
+                    const celebratoryCount = (data.score/data.total) > 0.6 ? 160 : 90;
+                    confetti({ particleCount: celebratoryCount, spread: 70, origin: { y: 0.6 } });
+                }
 
                 const histRes = await fetch('/api/student/portal-history', { method: 'POST', body: JSON.stringify({ school_id: normalizedStudent.school_id }) }).then(r => r.json());
                 if (histRes.found) setExamHistory(histRes.history.filter(h => h.exam_id === exam.exam.id));
@@ -1060,10 +1063,12 @@ export function getHtml() {
             if(mode === 'dashboard') return <StudentPortal onBack={() => setMode('identify')} />;
 
             if(mode === 'identify') return (
-                <div className="min-h-screen bg-indigo-500 flex items-center justify-center p-6">
-                    <div className="bg-white w-full max-w-sm p-8 rounded-3xl text-center anim-pop shadow-2xl">
-                        <p className="text-xs font-bold text-gray-400 mb-3">Step 1 of 2: Enter your School ID</p>
-                        <input className="w-full bg-gray-100 p-4 rounded-xl font-bold mb-3 outline-none" placeholder="School ID" value={student.school_id} onChange={e=>setStudent({...student, school_id:e.target.value})} />
+                <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-blue-50 flex items-center justify-center p-6 overflow-hidden relative">
+                    <div className="absolute -left-16 -top-10 w-48 h-48 bg-orange-100 rounded-full blur-3xl opacity-70"></div>
+                    <div className="absolute -right-10 bottom-0 w-40 h-40 bg-indigo-100 rounded-full blur-3xl opacity-70"></div>
+                    <div className="bg-white/90 backdrop-blur-xl w-full max-w-sm p-8 rounded-3xl text-center anim-pop shadow-2xl border border-orange-50 relative z-10">
+                        <p className="text-xs font-bold text-orange-500 mb-3">Step 1 of 2: Enter your School ID</p>
+                        <input className="w-full bg-gray-100 p-4 rounded-xl font-bold mb-3 outline-none focus:ring-2 focus:ring-orange-300" placeholder="School ID" value={student.school_id} onChange={e=>setStudent({...student, school_id:e.target.value})} />
                             <button onClick={async()=>{
                                 const trimmedId = (student.school_id || '').trim();
                                 if(!trimmedId) return alert("Enter ID");
@@ -1075,8 +1080,8 @@ export function getHtml() {
                                 } else {
                                     setMode('register');
                                 }
-                        }} className="w-full bg-black text-white p-4 rounded-xl font-bold">Continue</button>
-                        
+                        }} className="w-full bg-gradient-to-r from-orange-500 to-indigo-500 text-white p-4 rounded-xl font-bold shadow-lg shadow-orange-200">Continue</button>
+
                         {/* FIX: Added Dashboard Login Option */}
                         <div className="mt-6 border-t border-gray-100 pt-4">
                             <p className="text-xs text-gray-400 font-bold mb-2">Want to check results?</p>
@@ -1087,27 +1092,32 @@ export function getHtml() {
             );
 
             if(mode === 'register' || mode === 'update_profile') return (
-                <div className="min-h-screen bg-indigo-500 flex items-center justify-center p-6">
-                    <div className="bg-white w-full max-w-sm p-8 rounded-3xl anim-pop">
-                        <h1 className="text-xl font-bold mb-4">Step 2: Confirm your info</h1>
-                        <p className="text-xs text-gray-400 mb-4 font-bold">We pre-filled what we could. Complete any missing fields to start.</p>
+                <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-blue-50 flex items-center justify-center p-6 overflow-hidden relative">
+                    <div className="absolute -left-10 top-10 w-36 h-36 bg-orange-100 rounded-full blur-3xl opacity-70"></div>
+                    <div className="absolute right-0 -bottom-10 w-48 h-48 bg-indigo-100 rounded-full blur-3xl opacity-70"></div>
+                    <div className="bg-white/90 backdrop-blur-xl w-full max-w-sm p-8 rounded-3xl anim-pop shadow-2xl border border-orange-50 relative z-10">
+                        <h1 className="text-xl font-bold mb-4 text-slate-800">Step 2: Confirm your info</h1>
+                        <p className="text-xs text-gray-500 mb-4 font-bold">We pre-filled what we could. Complete any missing fields to start.</p>
 
-                        <div className="bg-gray-50 p-3 rounded-xl font-bold text-sm text-gray-500 mb-3">School ID: {student.school_id}</div>
+                        <div className="bg-orange-50 p-3 rounded-xl font-bold text-sm text-orange-700 mb-3 flex items-center justify-between">
+                            <span>School ID</span>
+                            <span className="bg-white text-orange-600 px-3 py-1 rounded-lg shadow-sm">{student.school_id}</span>
+                        </div>
 
-                        <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Full Name" value={student.name || ''} onChange={e=>setStudent({...student, name:e.target.value})} />
-                        <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none" placeholder="Roll No" value={student.roll || ''} onChange={e=>setStudent({...student, roll:e.target.value})} />
+                        <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none focus:ring-2 focus:ring-orange-300" placeholder="Full Name" value={student.name || ''} onChange={e=>setStudent({...student, name:e.target.value})} />
+                        <input className="w-full bg-gray-100 p-3 rounded-xl font-bold mb-3 outline-none focus:ring-2 focus:ring-orange-300" placeholder="Roll No" value={student.roll || ''} onChange={e=>setStudent({...student, roll:e.target.value})} />
 
                         <div className="flex gap-2 mb-4">
-                            <select value={student.class || ''} onChange={e=>setStudent({...student, class:e.target.value})} className="w-full bg-gray-100 p-3 rounded-xl font-bold text-sm outline-none">
+                            <select value={student.class || ''} onChange={e=>setStudent({...student, class:e.target.value})} className="w-full bg-gray-100 p-3 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-orange-300">
                                 <option value="">Select Class</option>
                                 {config.classes.map(c=><option key={c} value={c}>{c}</option>)}
                             </select>
-                            <select value={student.section || ''} onChange={e=>setStudent({...student, section:e.target.value})} className="w-full bg-gray-100 p-3 rounded-xl font-bold text-sm outline-none">
+                            <select value={student.section || ''} onChange={e=>setStudent({...student, section:e.target.value})} className="w-full bg-gray-100 p-3 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-orange-300">
                                 <option value="">Section</option>
                                 {config.sections.map(s=><option key={s} value={s}>{s}</option>)}
                             </select>
                         </div>
-                        
+
                         <button onClick={()=>{
                             const normalizedStudent = normalizeStudent(student);
                             setStudent(normalizedStudent);
@@ -1115,7 +1125,7 @@ export function getHtml() {
                                 return alert("Please fill all fields");
                             }
                             startGame();
-                        }} className="w-full bg-indigo-600 text-white p-3 rounded-xl font-bold">Start Exam</button>
+                        }} className="w-full bg-gradient-to-r from-orange-500 to-indigo-500 text-white p-3 rounded-xl font-bold shadow-lg shadow-orange-200">Start Exam</button>
                     </div>
                 </div>
             );
@@ -1135,85 +1145,135 @@ export function getHtml() {
                     );
                 }
 
+                const progress = Math.round(((qIdx + 1) / exam.questions.length) * 100);
+                const timeValue = settings.timerMode === 'question' ? qTime : Math.floor(totalTime/60) + ':' + (totalTime%60).toString().padStart(2,'0');
+                const isTimerLow = (settings.timerMode==='question'?qTime:totalTime) < 10;
+                const choices = JSON.parse(currentQuestion.choices);
+
                 return (
-                    <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-6">
-                        <div className="w-full max-w-md flex justify-between items-center mb-8">
-                            <div className="font-bold text-slate-500 uppercase text-xs tracking-widest">Question {qIdx+1}/{exam.questions.length}</div>
-                            <div className={\`text-xl font-mono font-bold \${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}\`}>
-                                {settings.timerMode === 'question' ? qTime : Math.floor(totalTime/60) + ':' + (totalTime%60).toString().padStart(2,'0')}
+                    <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-blue-50 text-slate-900 flex flex-col p-6 relative overflow-hidden">
+                        <div className="absolute -left-10 top-10 w-56 h-56 bg-orange-100 rounded-full blur-3xl opacity-60"></div>
+                        <div className="absolute right-0 -top-16 w-64 h-64 bg-indigo-100 rounded-full blur-3xl opacity-60"></div>
+                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,182,119,0.12),transparent_35%),radial-gradient(circle_at_80%_10%,rgba(120,202,255,0.12),transparent_35%)]"></div>
+
+                        <div className="relative z-10 max-w-4xl w-full mx-auto space-y-6 flex-1">
+                            <div className="flex items-center justify-between gap-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="h-12 w-12 rounded-2xl bg-white shadow-lg shadow-orange-100 flex items-center justify-center text-orange-500"><Icons.Exam /></div>
+                                    <div>
+                                        <p className="text-xs uppercase font-bold text-orange-500">Question {qIdx+1} of {exam.questions.length}</p>
+                                        <p className="text-xl font-black text-slate-800">{exam.exam.title}</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <div className="bg-white/80 backdrop-blur-md px-4 py-3 rounded-2xl shadow-md border border-orange-50 text-right">
+                                        <p className="text-[10px] uppercase text-gray-400 font-bold">Progress</p>
+                                        <p className="text-lg font-black text-slate-800">{progress}%</p>
+                                    </div>
+                                    <div className={`${isTimerLow ? 'bg-red-50 border-red-100 text-red-600 animate-pulse' : 'bg-white/80 border-indigo-50 text-indigo-600'} px-4 py-3 rounded-2xl shadow-md border font-black font-mono`}>{timeValue}</div>
+                                </div>
                             </div>
-                        </div>
-                        <div className="w-full max-w-md flex-1 flex flex-col justify-center">
-                            <div className="bg-white text-slate-900 p-6 rounded-3xl mb-6 text-center shadow-2xl">
-                                {currentQuestion.image_key && <img src={\`/img/\${currentQuestion.image_key}\`} className="h-40 mx-auto object-contain mb-4" />}
-                                <h2 className="text-xl font-bold">{currentQuestion.text}</h2>
+
+                            <div className="w-full h-2 bg-white/70 rounded-full shadow-inner overflow-hidden border border-orange-50">
+                                <div style={{ width: `${progress}%` }} className="h-full bg-gradient-to-r from-orange-400 via-pink-400 to-indigo-400 rounded-full transition-all"></div>
                             </div>
-                            <div className="grid grid-cols-1 gap-3">
-                                {JSON.parse(currentQuestion.choices).map(c => (
-                                    <button key={c.id} onClick={()=>{ setAnswers({...answers, [currentQuestion.id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }} className={\`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 \${answers[currentQuestion.id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}\`}>
-                                        {c.text}
-                                    </button>
-                                ))}
+
+                            <div className="bg-white/90 backdrop-blur-xl border border-orange-50 rounded-3xl p-6 shadow-xl flex flex-col gap-4">
+                                <div className="flex flex-col md:flex-row md:items-center md:gap-6">
+                                    {currentQuestion.image_key && (
+                                        <div className="md:w-48 md:flex-shrink-0 mb-4 md:mb-0">
+                                            <div className="bg-orange-50 rounded-2xl p-3 shadow-inner">
+                                                <img src={`/img/${currentQuestion.image_key}`} className="h-40 w-full object-contain rounded-xl" />
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div className="flex-1">
+                                        <p className="text-xs uppercase font-bold text-gray-400 mb-1">Question</p>
+                                        <h2 className="text-2xl font-black leading-tight text-slate-800">{currentQuestion.text}</h2>
+                                        <p className="text-sm text-gray-500 mt-2">Pick the best answer. You can change before moving forward.</p>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {choices.map(c => {
+                                        const isActive = answers[currentQuestion.id]===c.id;
+                                        return (
+                                            <button key={c.id} onClick={()=>{ setAnswers({...answers, [currentQuestion.id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }} className={`${isActive ? 'bg-gradient-to-r from-orange-100 to-indigo-100 border-orange-200 text-slate-900 shadow-lg shadow-orange-100' : 'bg-white border-gray-100 text-slate-700 hover:-translate-y-1 hover:shadow-md'} p-5 rounded-2xl font-bold text-left transition transform active:scale-95 border shadow-sm`}>
+                                                <div className="flex items-center gap-3">
+                                                    <span className={`${isActive ? 'bg-white text-orange-500 shadow' : 'bg-gray-100 text-gray-500'} h-8 w-8 rounded-full flex items-center justify-center text-sm font-black`}>{isActive ? '✓' : String.fromCharCode(65 + choices.findIndex(x => x.id === c.id))}</span>
+                                                    <span className="flex-1">{c.text}</span>
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+
+                                {settings.timerMode === 'total' && (
+                                    <div className="mt-4 flex justify-end">
+                                        <button onClick={next} className="px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-200 hover:-translate-y-0.5 transition">Next Question</button>
+                                    </div>
+                                )}
                             </div>
-                            {settings.timerMode === 'total' && <div className="mt-8 flex justify-end"><button onClick={next} className="px-6 py-2 bg-white text-black rounded-lg font-bold">Next</button></div>}
                         </div>
                     </div>
                 );
             }
 
             if(mode === 'summary') return (
-                <div className="min-h-screen bg-slate-900 text-white p-6 overflow-y-auto">
-                    <div className="max-w-2xl mx-auto space-y-6 pb-20">
+                <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-blue-50 text-slate-900 p-6 overflow-y-auto relative">
+                    <div className="absolute -left-10 top-0 w-48 h-48 bg-orange-100 rounded-full blur-3xl opacity-60"></div>
+                    <div className="absolute right-0 -bottom-10 w-56 h-56 bg-indigo-100 rounded-full blur-3xl opacity-60"></div>
+                    <div className="max-w-3xl mx-auto space-y-6 pb-20 relative z-10">
                         {/* Score Card */}
-                        <div className="bg-slate-800 p-8 rounded-3xl text-center border border-slate-700 shadow-2xl">
-                            <h2 className="text-3xl font-black mb-2 text-white">Exam Complete!</h2>
+                        <div className="bg-white/90 backdrop-blur-xl p-8 rounded-3xl text-center border border-orange-50 shadow-2xl">
+                            <h2 className="text-3xl font-black mb-2 text-slate-800">Exam Complete!</h2>
+                            <p className="text-gray-500 font-bold mb-6">Great effort, {student.name || 'Scholar'}! Here is your performance snapshot.</p>
                             {/* Stats Grid */}
-                            <div className="grid grid-cols-3 gap-3 my-6">
-                                <div className="bg-green-500/10 p-3 rounded-2xl border border-green-500/20">
-                                    <div className="text-2xl md:text-3xl font-black text-green-400">{score}</div>
-                                    <div className="text-[10px] md:text-xs font-bold uppercase text-green-200/50">Correct</div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 my-6">
+                                <div className="bg-green-50 p-4 rounded-2xl border border-green-100 shadow-sm">
+                                    <div className="text-3xl font-black text-green-600">{score}</div>
+                                    <div className="text-xs font-bold uppercase text-green-500">Correct</div>
                                 </div>
-                                <div className="bg-red-500/10 p-3 rounded-2xl border border-red-500/20">
-                                    <div className="text-2xl md:text-3xl font-black text-red-400">{exam.questions.length - score}</div>
-                                    <div className="text-[10px] md:text-xs font-bold uppercase text-red-200/50">Wrong</div>
+                                <div className="bg-red-50 p-4 rounded-2xl border border-red-100 shadow-sm">
+                                    <div className="text-3xl font-black text-red-500">{exam.questions.length - score}</div>
+                                    <div className="text-xs font-bold uppercase text-red-500">Wrong</div>
                                 </div>
-                                <div className="bg-blue-500/10 p-3 rounded-2xl border border-blue-500/20">
-                                    <div className="text-2xl md:text-3xl font-black text-blue-400">{Math.round((score/exam.questions.length)*100)}%</div>
-                                    <div className="text-[10px] md:text-xs font-bold uppercase text-blue-200/50">Score</div>
+                                <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100 shadow-sm">
+                                    <div className="text-3xl font-black text-indigo-600">{Math.round((score/exam.questions.length)*100)}%</div>
+                                    <div className="text-xs font-bold uppercase text-indigo-500">Score</div>
                                 </div>
                             </div>
                         </div>
 
                         {/* Actions */}
                         <div className="space-y-3">
-                             <button onClick={() => setShowReview(!showReview)} className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl font-bold flex justify-between items-center hover:bg-slate-700 transition">
-                                <span>See Correct Answers</span>
-                                {/* FIX: Escaped backticks (\`) and escaped dollar sign (\$) for the template literal below to prevent build error */}
-                                <span className={\`transform transition \${showReview ? 'rotate-180' : ''}\`}>▼</span>
+                             <button onClick={() => setShowReview(!showReview)} className="w-full bg-white/90 backdrop-blur-xl border border-orange-50 p-4 rounded-2xl font-bold flex justify-between items-center shadow-sm hover:shadow-md transition">
+                                <span className="text-slate-800">See Correct Answers</span>
+                                <span className={`${showReview ? 'rotate-180' : ''} transform transition`}>▼</span>
                             </button>
-                            
+
                             {/* FIX: Direct switch to Dashboard Mode */}
-                            <button onClick={() => setMode('dashboard')} className="w-full bg-orange-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-orange-500/20 btn-bounce flex items-center justify-center gap-2">
+                            <button onClick={() => setMode('dashboard')} className="w-full bg-gradient-to-r from-orange-500 to-indigo-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-orange-200 btn-bounce flex items-center justify-center gap-2">
                                 <Icons.Users /> See Past Results
                             </button>
                         </div>
 
                         {/* Detailed Review (Collapsible) */}
                         {showReview && (
-                            <div className="space-y-4 anim-enter">
+                            <div className="space-y-4 anim-enter bg-white/80 backdrop-blur-xl p-6 rounded-3xl border border-orange-50 shadow-sm">
                                 <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
                                 {resultDetails.map((d, i) => (
-                                    <div key={i} className={\`p-6 rounded-2xl border \${d.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}>
-                                        <div className="font-bold text-lg mb-3">Q{i+1}. {d.qText}</div>
-                                        <div className="space-y-2">
+                                    <div key={i} className={`${d.isCorrect ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'} p-5 rounded-2xl border`}>
+                                        <div className="font-bold text-lg mb-3 text-slate-800">Q{i+1}. {d.qText}</div>
+                                        <div className="space-y-2 text-sm">
                                             <div className="flex items-start gap-2">
-                                                <span className="font-bold min-w-[60px] text-gray-500">Student:</span> 
-                                                <span className={\`font-bold \${d.isCorrect ? 'text-green-500' : 'text-red-500'}\`}>{d.selectedText}</span>
+                                                <span className="font-bold min-w-[70px] text-gray-500">You picked</span>
+                                                <span className={`${d.isCorrect ? 'text-green-600' : 'text-red-600'} font-bold`}>{d.selectedText}</span>
                                             </div>
                                             {!d.isCorrect && (
                                                 <div className="flex items-start gap-2">
-                                                    <span className="font-bold min-w-[60px] text-gray-500">Correct:</span> 
-                                                    <span className="font-bold text-gray-800">{d.correctText}</span>
+                                                    <span className="font-bold min-w-[70px] text-gray-500">Correct</span>
+                                                    <span className="font-bold text-slate-800">{d.correctText}</span>
                                                 </div>
                                             )}
                                         </div>
@@ -1222,11 +1282,10 @@ export function getHtml() {
                             </div>
                         )}
 
-                        {settings.allowRetakes && (<div className="w-full text-center mt-8"><button onClick={() => window.location.reload()} className="text-indigo-400 font-bold hover:text-indigo-300">Retake Exam</button></div>)}
+                        {settings.allowRetakes && (<div className="w-full text-center mt-8"><button onClick={() => window.location.reload()} className="text-indigo-600 font-bold hover:text-indigo-500">Retake Exam</button></div>)}
                     </div>
                 </div>
             );
-        }
 
         // --- APP ROOT ---
         function App() {
