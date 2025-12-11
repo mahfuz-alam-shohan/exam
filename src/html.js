@@ -1120,6 +1120,7 @@ export function getHtml() {
                 </div>
             );
 
+
             if(mode === 'game') {
                 // FIX: Add safety check to ensure question exists before rendering
                 const currentQuestion = exam.questions[qIdx];
@@ -1135,65 +1136,106 @@ export function getHtml() {
                     );
                 }
 
+                const progress = Math.round(((qIdx + 1) / exam.questions.length) * 100);
+
                 return (
-                    <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-6">
-                        <div className="w-full max-w-md flex justify-between items-center mb-8">
-                            <div className="font-bold text-slate-500 uppercase text-xs tracking-widest">Question {qIdx+1}/{exam.questions.length}</div>
-                            <div className={\`text-xl font-mono font-bold \${(settings.timerMode==='question'?qTime:totalTime)<10?'text-red-500 animate-pulse':'text-green-400'}\`}>
-                                {settings.timerMode === 'question' ? qTime : Math.floor(totalTime/60) + ':' + (totalTime%60).toString().padStart(2,'0')}
+                    <div className="min-h-screen bg-gradient-to-b from-orange-50 via-white to-indigo-50 text-slate-900 flex flex-col items-center p-6">
+                        <div className="w-full max-w-3xl">
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-white shadow-inner flex items-center justify-center text-orange-500 font-black">{qIdx+1}</div>
+                                    <div>
+                                        <p className="text-xs font-bold text-slate-400 uppercase">Question</p>
+                                        <p className="text-lg font-black">{qIdx+1} of {exam.questions.length}</p>
+                                    </div>
+                                </div>
+                                <div className={\`px-4 py-2 rounded-full text-sm font-black shadow-sm border ${ (settings.timerMode==='question'?qTime:totalTime)<10 ? 'bg-red-50 text-red-500 border-red-100 animate-pulse' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}\`}>
+                                    ⏰ {settings.timerMode === 'question' ? `${qTime}s` : `${Math.floor(totalTime/60)}:${(totalTime%60).toString().padStart(2,'0')}`}
+                                </div>
+                            </div>
+
+                            <div className="h-2 rounded-full bg-white shadow-inner overflow-hidden mb-6">
+                                <div className="h-full bg-gradient-to-r from-orange-400 via-pink-400 to-indigo-500 transition-all" style={{ width: \`${progress}%\` }} />
                             </div>
                         </div>
-                        <div className="w-full max-w-md flex-1 flex flex-col justify-center">
-                            <div className="bg-white text-slate-900 p-6 rounded-3xl mb-6 text-center shadow-2xl">
-                                {currentQuestion.image_key && <img src={\`/img/\${currentQuestion.image_key}\`} className="h-40 mx-auto object-contain mb-4" />}
-                                <h2 className="text-xl font-bold">{currentQuestion.text}</h2>
+
+                        <div className="w-full max-w-3xl flex-1 grid lg:grid-cols-[1.3fr_1fr] gap-6 items-start">
+                            <div className="bg-white/80 backdrop-blur rounded-3xl shadow-xl border border-orange-100/70 p-6 lg:p-8">
+                                {currentQuestion.image_key && (
+                                    <div className="rounded-2xl overflow-hidden bg-orange-50 border border-orange-100 mb-6 flex items-center justify-center">
+                                        <img src={\`/img/\${currentQuestion.image_key}\`} className="h-56 w-full object-contain" />
+                                    </div>
+                                )}
+                                <h2 className="text-2xl lg:text-3xl font-black text-slate-900 leading-tight">{currentQuestion.text}</h2>
+                                <p className="mt-2 text-sm font-medium text-slate-500">Pick the best answer to keep your streak alive!</p>
                             </div>
+
                             <div className="grid grid-cols-1 gap-3">
-                                {JSON.parse(currentQuestion.choices).map(c => (
-                                    <button key={c.id} onClick={()=>{ setAnswers({...answers, [currentQuestion.id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }} className={\`p-5 rounded-2xl font-bold text-left transition transform active:scale-95 \${answers[currentQuestion.id]===c.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/50' : 'bg-slate-800 text-slate-300'}\`}>
-                                        {c.text}
-                                    </button>
-                                ))}
+                                {JSON.parse(currentQuestion.choices).map(c => {
+                                    const isSelected = answers[currentQuestion.id]===c.id;
+                                    return (
+                                        <button
+                                            key={c.id}
+                                            onClick={()=>{ setAnswers({...answers, [currentQuestion.id]:c.id}); if(settings.timerMode==='question') setTimeout(next, 250); }}
+                                            className={\`group p-5 rounded-2xl text-left font-bold transition transform active:scale-95 border ${isSelected ? 'bg-gradient-to-r from-indigo-500 to-indigo-600 text-white shadow-lg shadow-indigo-300 border-indigo-500' : 'bg-white/90 text-slate-800 border-orange-100 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-lg'}\`}
+                                        >
+                                            <div className="flex items-start gap-3">
+                                                <span className={\`mt-1 w-8 h-8 flex items-center justify-center rounded-full border font-black ${isSelected ? 'bg-white/20 border-white text-white' : 'border-indigo-100 text-indigo-400'}\`}>{String.fromCharCode(65 + JSON.parse(currentQuestion.choices).findIndex(x=>x.id===c.id))}</span>
+                                                <span className="leading-relaxed">{c.text}</span>
+                                            </div>
+                                        </button>
+                                    );
+                                })}
                             </div>
-                            {settings.timerMode === 'total' && <div className="mt-8 flex justify-end"><button onClick={next} className="px-6 py-2 bg-white text-black rounded-lg font-bold">Next</button></div>}
+
+                            {settings.timerMode === 'total' && (
+                                <div className="lg:col-span-2 flex justify-end mt-4">
+                                    <button onClick={next} className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-black shadow-md shadow-indigo-200 hover:-translate-y-0.5 transition">Next question</button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 );
             }
 
             if(mode === 'summary') return (
-                <div className="min-h-screen bg-slate-900 text-white p-6 overflow-y-auto">
-                    <div className="max-w-2xl mx-auto space-y-6 pb-20">
+                <div className="min-h-screen bg-gradient-to-b from-orange-50 via-white to-sky-50 text-slate-900 p-6 overflow-y-auto">
+                    <div className="max-w-3xl mx-auto space-y-6 pb-20">
                         {/* Score Card */}
-                        <div className="bg-slate-800 p-8 rounded-3xl text-center border border-slate-700 shadow-2xl">
-                            <h2 className="text-3xl font-black mb-2 text-white">Exam Complete!</h2>
+                        <div className="bg-white/80 backdrop-blur p-8 rounded-3xl text-center border border-orange-100 shadow-xl">
+                            <h2 className="text-3xl font-black mb-2 text-slate-900">Exam Complete! 🎉</h2>
                             {/* Stats Grid */}
                             <div className="grid grid-cols-3 gap-3 my-6">
-                                <div className="bg-green-500/10 p-3 rounded-2xl border border-green-500/20">
-                                    <div className="text-2xl md:text-3xl font-black text-green-400">{score}</div>
-                                    <div className="text-[10px] md:text-xs font-bold uppercase text-green-200/50">Correct</div>
+                                <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+                                    <div className="text-2xl md:text-3xl font-black text-emerald-600">{score}</div>
+                                    <div className="text-[10px] md:text-xs font-bold uppercase text-emerald-500/70">Correct</div>
                                 </div>
-                                <div className="bg-red-500/10 p-3 rounded-2xl border border-red-500/20">
-                                    <div className="text-2xl md:text-3xl font-black text-red-400">{exam.questions.length - score}</div>
-                                    <div className="text-[10px] md:text-xs font-bold uppercase text-red-200/50">Wrong</div>
+                                <div className="bg-rose-50 p-4 rounded-2xl border border-rose-100">
+                                    <div className="text-2xl md:text-3xl font-black text-rose-500">{exam.questions.length - score}</div>
+                                    <div className="text-[10px] md:text-xs font-bold uppercase text-rose-400/80">Wrong</div>
                                 </div>
-                                <div className="bg-blue-500/10 p-3 rounded-2xl border border-blue-500/20">
-                                    <div className="text-2xl md:text-3xl font-black text-blue-400">{Math.round((score/exam.questions.length)*100)}%</div>
-                                    <div className="text-[10px] md:text-xs font-bold uppercase text-blue-200/50">Score</div>
+                                <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
+                                    <div className="text-2xl md:text-3xl font-black text-indigo-600">{Math.round((score/exam.questions.length)*100)}%</div>
+                                    <div className="text-[10px] md:text-xs font-bold uppercase text-indigo-400/80">Score</div>
                                 </div>
+                            </div>
+
+                            <div className="flex items-center justify-center gap-4 text-sm font-medium text-slate-500">
+                                <span className="px-3 py-2 rounded-full bg-white shadow-inner">⏱️ Time spent: {settings.timerMode==='total' ? `${Math.floor((settings.timerValue*60 - totalTime)/60)}m` : 'Per question pace'}</span>
+                                <span className="px-3 py-2 rounded-full bg-white shadow-inner">📚 Questions answered: {exam.questions.length}</span>
                             </div>
                         </div>
 
                         {/* Actions */}
                         <div className="space-y-3">
-                             <button onClick={() => setShowReview(!showReview)} className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl font-bold flex justify-between items-center hover:bg-slate-700 transition">
-                                <span>See Correct Answers</span>
+                             <button onClick={() => setShowReview(!showReview)} className="w-full bg-white/80 border border-orange-100 p-4 rounded-2xl font-bold flex justify-between items-center shadow-sm hover:shadow-md transition">
+                                <span className="flex items-center gap-2"><span className="text-xl">🔍</span>See Correct Answers</span>
                                 {/* FIX: Escaped backticks (\`) and escaped dollar sign (\$) for the template literal below to prevent build error */}
-                                <span className={\`transform transition \${showReview ? 'rotate-180' : ''}\`}>▼</span>
+                                <span className={\`transform transition ${showReview ? 'rotate-180' : ''}\`}>▼</span>
                             </button>
-                            
+
                             {/* FIX: Direct switch to Dashboard Mode */}
-                            <button onClick={() => setMode('dashboard')} className="w-full bg-orange-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-orange-500/20 btn-bounce flex items-center justify-center gap-2">
+                            <button onClick={() => setMode('dashboard')} className="w-full bg-gradient-to-r from-orange-500 to-pink-500 text-white p-4 rounded-2xl font-bold shadow-lg shadow-orange-200 btn-bounce flex items-center justify-center gap-2">
                                 <Icons.Users /> See Past Results
                             </button>
                         </div>
@@ -1203,17 +1245,17 @@ export function getHtml() {
                             <div className="space-y-4 anim-enter">
                                 <h3 className="font-bold text-xl mb-4 text-center">Detailed Review</h3>
                                 {resultDetails.map((d, i) => (
-                                    <div key={i} className={\`p-6 rounded-2xl border \${d.isCorrect ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}\`}>
-                                        <div className="font-bold text-lg mb-3">Q{i+1}. {d.qText}</div>
+                                    <div key={i} className={\`p-6 rounded-2xl border shadow-sm ${d.isCorrect ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100'}\`}>
+                                        <div className="font-bold text-lg mb-3 text-slate-900">Q{i+1}. {d.qText}</div>
                                         <div className="space-y-2">
                                             <div className="flex items-start gap-2">
-                                                <span className="font-bold min-w-[60px] text-gray-500">Student:</span> 
-                                                <span className={\`font-bold \${d.isCorrect ? 'text-green-500' : 'text-red-500'}\`}>{d.selectedText}</span>
+                                                <span className="font-bold min-w-[70px] text-slate-500">Student:</span>
+                                                <span className={\`font-bold ${d.isCorrect ? 'text-emerald-600' : 'text-rose-500'}\`}>{d.selectedText}</span>
                                             </div>
                                             {!d.isCorrect && (
                                                 <div className="flex items-start gap-2">
-                                                    <span className="font-bold min-w-[60px] text-gray-500">Correct:</span> 
-                                                    <span className="font-bold text-gray-800">{d.correctText}</span>
+                                                    <span className="font-bold min-w-[70px] text-slate-500">Correct:</span>
+                                                    <span className="font-bold text-slate-800">{d.correctText}</span>
                                                 </div>
                                             )}
                                         </div>
@@ -1222,12 +1264,15 @@ export function getHtml() {
                             </div>
                         )}
 
-                        {settings.allowRetakes && (<div className="w-full text-center mt-8"><button onClick={() => window.location.reload()} className="text-indigo-400 font-bold hover:text-indigo-300">Retake Exam</button></div>)}
+                        {settings.allowRetakes && (
+                            <div className="w-full text-center mt-8">
+                                <button onClick={() => window.location.reload()} className="text-indigo-600 font-bold hover:text-indigo-500">Retake Exam</button>
+                            </div>
+                        )}
                     </div>
                 </div>
             );
         }
-
         // --- APP ROOT ---
         function App() {
             const [status, setStatus] = useState(null);
